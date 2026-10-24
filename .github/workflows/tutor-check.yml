@@ -21,8 +21,8 @@ jobs:
           node-version: '24'
       - name: Backend behavior and quota checks
         run: npm test --prefix services/tutor
-      - name: Private deployment and rollback checks without network calls
-        run: python3 -B -m unittest discover -s services/tutor/test -p 'test_configure_minimax_remote.py' -v
+      - name: Private deployment and bounded acceptance checks without network calls
+        run: python3 -B -m unittest discover -s services/tutor/test -p 'test_*minimax*.py' -v
       - name: Install offline video verification tools
         run: |
           sudo apt-get update -qq
