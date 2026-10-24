@@ -42,7 +42,7 @@ export async function startServer(options={}){
     fail('NOT_FOUND',404);
    }
    if(!['GET','HEAD'].includes(req.method))fail('NOT_FOUND',404);
-   const root=path.resolve(HERE,'../../apps/web'),files={'/':'index.html','/app.js':'app.js','/api-client.mjs':'api-client.mjs','/style.css':'style.css'};
+   const root=path.resolve(HERE,'../../apps/web'),files={'/':'index.html','/app.js':'app.js','/api-client.mjs':'api-client.mjs','/ui.mjs':'ui.mjs','/photo-editor.mjs':'photo-editor.mjs','/style.css':'style.css'};
    const name=files[p];if(!name||!fs.existsSync(path.join(root,name)))fail('NOT_FOUND',404);
    const data=fs.readFileSync(path.join(root,name));res.writeHead(200,{'content-type':/\.m?js$/.test(name)?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache','referrer-policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:data);
   }catch(e){if(!res.headersSent)json(res,e instanceof TutorError?e.status:500,{error:e instanceof TutorError?e.code:'INTERNAL_ERROR'});else res.destroy();}

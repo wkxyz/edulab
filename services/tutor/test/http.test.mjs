@@ -8,6 +8,7 @@ test('HTTP session, real configuration failure, owner boundary and cancellation'
  const base=`http://127.0.0.1:${server.address().port}`;
  const req=async(url,{token,body,method='GET',key}={})=>{const r=await fetch(base+url,{method,headers:{...(token?{authorization:`Bearer ${token}`} : {}),...(body?{'content-type':'application/json'}:{}),...(key?{'idempotency-key':key}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json()};};
  try{
+ for(const asset of ['/ui.mjs','/photo-editor.mjs']){const r=await fetch(base+asset);assert.equal(r.status,200,asset);assert.match(r.headers.get('content-type'),/javascript/);assert.match(await r.text(),/export /);}
  const a=(await req('/api/session',{method:'POST'})).data.token,b=(await req('/api/session',{method:'POST'})).data.token;
  assert.equal((await req('/api/tasks')).status,401);
  assert.equal((await req('/api/tasks',{method:'POST',token:a,key:'live',body:{text:'求二加二'}})).status,503);

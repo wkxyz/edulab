@@ -11,7 +11,19 @@ try{
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);assert.equal(overflow,false);
  await page.screenshot({path:path.join(dir,'mobile.png')});
  // A real upload must report disabled live service, never masquerade as the fixed sample.
- await page.locator('#file').setInputFiles({name:'question.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XKqkAAAAASUVORK5CYII=','base64')});
+ const question=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=640;canvas.height=400;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,640,400);ctx.fillStyle='#222';ctx.font='36px sans-serif';ctx.fillText('2x + 3 = 11',120,180);return canvas.toDataURL('image/png').split(',')[1];});
+ await page.locator('#file').setInputFiles({name:'question.png',mimeType:'image/png',buffer:Buffer.from(question,'base64')});
+ await page.getByRole('button',{name:'裁剪 / 旋转',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'调整题目图片'});await dialog.waitFor();
+ await dialog.getByRole('button',{name:'旋转 90°',exact:true}).click();
+ const canvas=dialog.locator('canvas'),bounds=await canvas.boundingBox();
+ await page.mouse.move(bounds.x+1,bounds.y+1);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.2,bounds.y+bounds.height*.1,{steps:5});await page.mouse.up();
+ await canvas.focus();for(let i=0;i<5;i++)await canvas.press('Shift+ArrowLeft');
+ await page.screenshot({path:path.join(dir,'crop.png')});
+ await dialog.getByRole('button',{name:'使用这张图片',exact:true}).click();
+ await page.locator('.photo-preview[data-cropped="true"]').waitFor();
+ const cropped=await page.locator('.photo-preview').evaluate(async image=>{await image.decode();return {width:image.naturalWidth,height:image.naturalHeight};});
+ assert.ok(cropped.width<400&&cropped.height<640&&cropped.height>cropped.width,JSON.stringify(cropped));
  await page.getByRole('button',{name:'生成视频讲解',exact:true}).click();await page.getByText('真实解题服务尚未开通，可先体验示例讲解。',{exact:true}).waitFor();
  await page.getByRole('button',{name:'体验示例讲解',exact:true}).click();
  await page.getByRole('button',{name:'取消本次生成',exact:true}).click();await page.getByText('任务已取消。',{exact:true}).waitFor();
@@ -28,9 +40,24 @@ try{
  await page.locator('video').evaluate(video=>video.play());await page.waitForTimeout(1200);
  const playback=await page.locator('video').evaluate(v=>({duration:v.duration,currentTime:v.currentTime,width:v.videoWidth,height:v.videoHeight}));
  assert.ok(playback.currentTime>0);assert.equal(playback.width,1280);assert.equal(playback.height,720);
+ await page.getByRole('combobox',{name:'播放速度',exact:true}).selectOption('1.5');assert.equal(await page.locator('video').evaluate(v=>v.playbackRate),1.5);
+ const lastChapter=page.locator('[data-seek]').last(),chapterTime=await lastChapter.locator('.chapter-time').innerText();
+ const [minutes,seconds]=chapterTime.split(':').map(Number);await lastChapter.click();
+ await page.waitForFunction(target=>document.querySelector('video').currentTime>=target,minutes*60+seconds);
+ assert.ok((await page.locator('video').evaluate(v=>v.currentTime))<minutes*60+seconds+3);
  await page.locator('video').evaluate(v=>new Promise(resolve=>{v.pause();v.addEventListener('seeked',()=>resolve(),{once:true});v.currentTime=Math.max(0,v.duration-3);}));
+ const beforeRewind=await page.locator('video').evaluate(v=>v.currentTime);await page.getByRole('button',{name:'后退 10 秒'}).click();
+ await page.waitForFunction(target=>Math.abs(document.querySelector('video').currentTime-target)<.5,beforeRewind-10);
+ const downloadPending=page.waitForEvent('download');await page.getByRole('link',{name:'下载视频',exact:true}).click();const download=await downloadPending;assert.equal(await download.failure(),null);assert.match(download.suggestedFilename(),/\.mp4$/);
  await page.screenshot({path:path.join(dir,'result.png')});
- await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:'拍题',exact:true}).click();await page.screenshot({path:path.join(dir,'desktop.png')});
+ await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:'放大观看',exact:true}).click();
+ assert.equal(await page.locator('.wide-player').count(),1);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.getByRole('button',{name:'恢复布局',exact:true}).click();
+ await page.getByRole('button',{name:'返回我的视频',exact:true}).click();await page.getByRole('button',{name:'已完成',exact:true}).click();
+ await page.getByRole('button',{name:/一元一次方程/}).first().waitFor();
+ await page.getByRole('searchbox',{name:'搜索视频',exact:true}).fill('找不到的题目');await page.getByRole('heading',{name:'没有找到匹配的视频',exact:true}).waitFor();
+ await page.getByRole('button',{name:'清除筛选',exact:true}).click();await page.getByRole('button',{name:/一元一次方程/}).first().waitFor();
+ await page.getByRole('button',{name:'拍题',exact:true}).click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(dir,'desktop.png')});
  await page.getByRole('button',{name:'我的',exact:true}).click();await page.getByRole('heading',{name:'我的',exact:true}).waitFor();
  await page.goBack();await page.getByRole('heading',{name:'拍一道题，听懂每一步'}).waitFor();
  assert.deepEqual(issues,[]);
@@ -38,8 +65,8 @@ try{
  const range=await fetch(base+task.result.video,{headers:{Range:'bytes=0-1023'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,1024);
  const probe=JSON.parse((await runProcess('ffprobe',['-v','error','-show_streams','-of','json',path.join(dir,'jobs',task.id,'video.mp4')])).toString());
  assert.ok(probe.streams.some(s=>s.codec_type==='audio'));assert.ok(probe.streams.some(s=>s.codec_type==='video'));
- console.log('SMOKE_RESULT',JSON.stringify({playback,stages:'upload disabled -> sample cancelled -> sample completed -> reload playback',httpRange:206,consoleErrors:issues.length,externalPaidCalls:0}));
+ console.log('SMOKE_RESULT',JSON.stringify({playback,cropped,stages:'crop + rotate -> upload disabled -> sample cancelled -> completed -> reload -> speed + chapter + rewind + download -> history search',httpRange:206,consoleErrors:issues.length,externalPaidCalls:0}));
  // Public sample UI only, never user uploads or credentials. Kept in the existing job log to avoid artifact storage.
- for(const name of ['mobile','processing','result','desktop'])console.log('QA_IMAGE_'+name.toUpperCase()+':'+fs.readFileSync(path.join(dir,name+'.png')).toString('base64'));
+ for(const name of ['mobile','crop','processing','result','desktop'])console.log('QA_IMAGE_'+name.toUpperCase()+':'+fs.readFileSync(path.join(dir,name+'.png')).toString('base64'));
  await verifyKieFlow(dir,task.id);
 }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
