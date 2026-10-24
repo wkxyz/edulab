@@ -43,9 +43,11 @@ docker compose -f compose.tutor.yml -f compose.tutor.public.yml -f compose.tutor
 
 ### 使用 MiniMax-M3.1-Flash 解题
 
-用户指定MiniMax后，设置 `AI_PROVIDER=minimax`、`MINIMAX_REGION=cn`（国内平台）或 `global`（国际平台），将对应平台的按量计费密钥写入 `MINIMAX_API_KEY`。模型固定为 `MiniMax-M3.1-Flash`，思考深度默认 `medium`；使用官方 `/v1/chat/completions`，开启 `reasoning_split`，只消费最终讲解内容，求解和复核分别最多8192/4096生成tokens。图片通过Base64直接传给MiniMax，不再上传至KIE文件服务。
+用户指定MiniMax后，设置 `AI_PROVIDER=minimax`、`MINIMAX_REGION=cn`（国内平台）或 `global`（国际平台），将对应平台的解题密钥写入 `MINIMAX_API_KEY`。模型固定为 `MiniMax-M3.1-Flash`，思考深度默认 `medium`；使用官方 `/v1/chat/completions`，开启 `reasoning_split`，只消费最终讲解内容，求解和复核分别最多8192/4096生成tokens。图片通过Base64直接传给MiniMax，不再上传至KIE文件服务。
 
-配音继续使用既有 `KIE_API_KEY` 与ElevenLabs；两家密钥分开，KIE密钥不会发送至MiniMax。MiniMax密钥未配置时不允许提交真实题。M Plan订阅密钥与按量计费API Key不同，网站接入不依赖购买订阅或自动充值。已有失败任务、预算预留和累计次数必须保留；允许再做一题时显式增加累计上限，不清库、不自动重试。
+配音默认改为MiniMax `speech-2.8-hd`，普通话成熟女声 `female-chengshu`。使用 `MINIMAX_TTS_API_KEY` 单独配置配音Key；缺省时复用MiniMax解题Key。配音平台区域可通过 `MINIMAX_TTS_REGION=cn|global` 单独指定，确保与Key来源一致。每段通过同步接口直接返回WAV，不轮询、不下载供应商提供的外部URL。需要旧通道时显式设置 `TTS_PROVIDER=kie|glm`；任何通道均不会转发另一家的密钥。密钥未配置时不允许真实任务。
+
+M Plan订阅Key可用于受限的个人交互式验收，正式对外运行建议使用普通按量计费API Key；两类Key的额度来源不同，不自动购买套餐或充值。已有失败任务、预算预留和累计次数必须保留；允许再做一题时显式增加累计上限，不清库、不自动重试。
 
 官方依据：[MiniMax模型接口](https://platform.minimax.cn/docs/api-reference/text-chat-openai)、[官方定价](https://platform.minimax.cn/docs/pricing/overview)。截至2026-10-24，KIE模型市场搜索MiniMax仅列出H3视频模型，因此M3.1-Flash使用MiniMax官方通道。
 

@@ -3,10 +3,15 @@ import {configFromEnv} from '../config.mjs';import {solve} from '../ai.mjs';impo
 const env={AI_PROVIDER:'minimax',MINIMAX_API_KEY:'minimax-test-only',KIE_API_KEY:'kie-test-only'};
 const context=()=>({signal:new AbortController().signal,stage(){},guard(){}});
 async function fixture(fn,run){const original=globalThis.fetch;globalThis.fetch=fn;try{return await run();}finally{globalThis.fetch=original;}}
-test('MiniMax uses its own exact model and key while retaining KIE narration',()=>{
- const c=configFromEnv(env);assert.equal(c.provider,'minimax');assert.equal(c.aiModel,'MiniMax-M3.1-Flash');assert.equal(c.aiKey,'minimax-test-only');assert.equal(c.aiBase,'https://api.minimax.cn/v1');assert.equal(c.reasoningEffort,'medium');assert.equal(c.ttsKey,'kie-test-only');assert.equal(c.ttsProvider,'kie');assert.equal(c.configured,true);assert.equal(c.liveEnabled,false);
+test('MiniMax config separates language and speech credentials with an optional KIE override',()=>{
+ const c=configFromEnv(env);assert.equal(c.provider,'minimax');assert.equal(c.aiModel,'MiniMax-M3.1-Flash');assert.equal(c.aiKey,'minimax-test-only');assert.equal(c.aiBase,'https://api.minimax.cn/v1');assert.equal(c.reasoningEffort,'medium');assert.equal(c.ttsKey,'minimax-test-only');assert.equal(c.ttsProvider,'minimax');assert.equal(c.configured,true);assert.equal(c.liveEnabled,false);
  assert.equal(configFromEnv({...env,MINIMAX_API_KEY:''}).configured,false);
- assert.equal(configFromEnv({...env,KIE_API_KEY:''}).configured,false);
+ assert.equal(configFromEnv({...env,KIE_API_KEY:''}).configured,true);
+ assert.equal(configFromEnv({...env,MINIMAX_TTS_API_KEY:'separate-voice'}).ttsKey,'separate-voice');
+ assert.equal(configFromEnv({...env,TTS_PROVIDER:'kie'}).ttsKey,'kie-test-only');
+ assert.equal(configFromEnv({...env,MINIMAX_TTS_REGION:'global'}).ttsBase,'https://api.minimax.io/v1');
+ assert.throws(()=>configFromEnv({...env,TTS_PROVIDER:'invalid'}),/TTS_PROVIDER/);
+ assert.throws(()=>configFromEnv({...env,MINIMAX_TTS_MODEL:'unknown'}),/MINIMAX_TTS_MODEL/);
  assert.equal(configFromEnv({...env,MINIMAX_REGION:'global'}).aiBase,'https://api.minimax.io/v1');
  assert.throws(()=>configFromEnv({...env,MINIMAX_REGION:'invalid'}),/MINIMAX_REGION/);
  assert.throws(()=>configFromEnv({...env,MINIMAX_REASONING_EFFORT:'none'}),/MINIMAX_REASONING_EFFORT/);
