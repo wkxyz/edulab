@@ -117,6 +117,96 @@ const MATHJAX_SHIM = `(function(){
   window.MathJax={typesetPromise,typesetClear(){},startup:{defaultPageReady:()=>typesetPromise()}};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>typesetPromise());else typesetPromise();
 })();`;
+
+// A pure camera calculation shared with the generated browser adapter. Bounds
+// cover every phase, including fragment rotations, atom outlines and bobbing.
+export function chemistryCameraFrame(data, width, height, direction = [0, 4, 13]) {
+  const dot = (a, b) => a.reduce((sum, n, i) => sum + n * b[i], 0);
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = a => { const length = Math.hypot(...a); return a.map(n => n / length); };
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  const fragments = new Map((data.fragments || []).map(f => [f.id, f]));
+  const include = (point, radius) => point.forEach((n, i) => { min[i] = Math.min(min[i], n - radius); max[i] = Math.max(max[i], n + radius); });
+  for (const atom of data.atoms || []) {
+    const radius = atom.radius * 1.07 + 0.2;
+    const fragment = data.meta?.engine === 'mechanism' && fragments.get(atom.frag);
+    if (fragment && atom.flocal) {
+      // A local atom may rotate between keyframes. Its full radial envelope
+      // avoids missing extrema between the three sampled fragment positions.
+      for (const key of ['K0', 'K1', 'K2']) include(fragment[key].pos, radius + Math.hypot(...atom.flocal));
+    } else {
+      include(atom.start, radius); include(atom.end, radius);
+    }
+  }
+  if (!min.every(Number.isFinite) || !max.every(Number.isFinite)) throw new Error('INVALID_CHEMISTRY_VIEW');
+  const target = min.map((n, i) => (n + max[i]) / 2);
+  const back = unit(Math.hypot(...direction) > 0.001 ? direction : [0, 4, 13]);
+  const right = unit(cross(Math.abs(back[1]) > 0.99 ? [0, 0, 1] : [0, 1, 0], back));
+  const up = cross(back, right);
+  const tanV = Math.tan(Math.PI / 8), tanH = tanV * Math.max(1, width) / Math.max(1, height);
+  let distance = 3;
+  for (let corner = 0; corner < 8; corner++) {
+    const local = target.map((n, i) => ((corner >> i) & 1 ? max[i] : min[i]) - n);
+    const depth = dot(local, back);
+    // Leave room for molecule labels and the viewport controls above/below.
+    distance = Math.max(distance, depth + Math.abs(dot(local, right)) / (tanH * 0.78), depth + Math.abs(dot(local, up)) / (tanV * 0.62));
+  }
+  const radius = Math.hypot(...max.map((n, i) => (n - min[i]) / 2));
+  return { target, position: target.map((n, i) => n + back[i] * distance), distance, far: Math.max(100, distance + radius * 4) };
+}
+
+const CHEMISTRY_LAYOUT = `
+html,body{width:100%;height:100%;min-height:0;overflow:hidden}
+body>main{width:100%;height:100%;min-height:0;flex:1 1 0%;overflow:hidden}
+body>main>div{min-width:0;min-height:0}
+body>main>div:first-child{flex:0 0 45%;height:45%;overflow:hidden}
+body>main>div:nth-child(2){width:100%;max-width:100%;min-height:0;flex:1 1 0%;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+#canvas-container{min-width:0;min-height:0;position:relative;overflow:hidden}
+#canvas-container>canvas{display:block;position:absolute;inset:0;width:100%;height:100%;max-width:100%}
+#stepper>button{flex:1 1 0%;min-width:0;overflow-wrap:anywhere}
+#stepper>button>span{max-width:100%}
+#equation-container{max-width:100%}
+@media(min-width:1024px){
+body>main>div:first-child{flex:1 1 0%;height:100%}
+body>main>div:nth-child(2){width:42%;max-width:480px;flex:0 0 min(42%,480px);height:100%}
+}
+@media(max-width:600px){
+body>main>div:nth-child(2)>div{padding:16px}
+#energy-panel{padding:8px;top:12px;right:12px}
+#energy-canvas{width:140px;height:77px}
+}`;
+
+function replaceOnce(code, from, to) {
+  if (code.split(from).length !== 2) invalid();
+  return code.replace(from, () => to);
+}
+function adaptChemistry(code) {
+  if (!code.includes('function init3D()')) return code;
+  const resize = `function onResize() {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }`;
+  code = replaceOnce(code, resize, `${chemistryCameraFrame.toString()}
+        function fitChemistryPreview(reset) {
+            const frame = chemistryCameraFrame(DATA, container.clientWidth, container.clientHeight,
+                reset ? [0, 4, 13] : camera.position.clone().sub(controls.target).toArray());
+            controls.target.fromArray(frame.target); camera.position.fromArray(frame.position);
+            camera.aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+            camera.far = frame.far; camera.updateProjectionMatrix();
+            controls.maxDistance = Math.max(28, frame.distance * 2); controls.update();
+            scene.fog.density = Math.min(0.022, 0.022 * 13.6 / frame.distance);
+        }
+        function onResize() {
+            renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
+            fitChemistryPreview(false);
+        }`);
+  code = replaceOnce(code, 'renderer.setSize(container.clientWidth, container.clientHeight);', 'renderer.setSize(container.clientWidth, container.clientHeight, false);');
+  code = replaceOnce(code, "window.addEventListener('resize', onResize);", "window.addEventListener('resize', onResize);\n            new ResizeObserver(onResize).observe(container); onResize();");
+  code = replaceOnce(code, 'camera.position.set(0, 4, 13); controls.target.set(0, 0, 0);', 'fitChemistryPreview(true);');
+  code = replaceOnce(code, "el.style.left = (sx / n) + 'px';", "el.style.left = Math.max(el.offsetWidth / 2 + 8, Math.min(rect.width - el.offsetWidth / 2 - 8, sx / n)) + 'px';");
+  return replaceOnce(code, "el.style.top = (topY - 6) + 'px';", "el.style.top = Math.max(el.offsetHeight + 8, Math.min(rect.height - 8, topY - 6)) + 'px';");
+}
 const KATEX_CDN = /^https:\/\/cdn\.jsdelivr\.net\/npm\/katex@0\.16\.(?:8|9)\/dist\/(katex\.min\.(?:js|css)|contrib\/auto-render\.min\.js)$/;
 const LOCAL_KATEX = /^file:\/\/[^\r\n]*\/node_modules\/katex\/dist\/(katex\.min\.(?:js|css)|contrib\/auto-render\.min\.js)$/;
 const OPTIONAL_FONT = /^file:\/\/[^\r\n]*\/node_modules\/(?:lxgw-wenkai-webfont\/style\.css|@fontsource\/(?:noto-serif-sc\/(?:400|600)|noto-sans-sc\/400|zcool-kuaile\/400|jetbrains-mono\/400)\.css)$/;
@@ -226,8 +316,9 @@ export async function makeStandalonePreview(html, { kind, jobDir } = {}) {
           } else invalid();
           continue;
         }
-        const code = await replaceAudioStrings(source(node), embed);
+        let code = await replaceAudioStrings(source(node), embed);
         checkScript(code);
+        if (kind === 'chem-reaction') code = adaptChemistry(code);
         if (type === 'module') {
           if (kind !== 'solid-geometry') invalid();
           replaceNode(node, inline(await moduleScript(code), 'three-0.160.0-lesson'));
@@ -242,7 +333,10 @@ export async function makeStandalonePreview(html, { kind, jobDir } = {}) {
         else invalid();
         continue;
       }
-      if (tag === 'style') checkCss(source(node));
+      if (tag === 'style') {
+        if (kind === 'solid-geometry') textNode(node, source(node).replace(/\.answer-card span\s*\{/g, '.answer-card > div:first-child > span {'));
+        checkCss(source(node));
+      }
       for (const attribute of node.attrs || []) {
         const name = attribute.name, value = attribute.value;
         if (['srcset', 'ping', 'action', 'formaction', 'srcdoc', 'manifest', 'background'].includes(name)) invalid();
@@ -263,6 +357,12 @@ export async function makeStandalonePreview(html, { kind, jobDir } = {}) {
   for (const addition of additions) addition.parentNode = head;
   // CSP precedes every script and resource, including the inlined dependencies.
   head.childNodes.unshift(...additions);
+  if (kind === 'chem-reaction') {
+    checkCss(CHEMISTRY_LAYOUT);
+    const overrides = parseFragment(style(CHEMISTRY_LAYOUT)).childNodes;
+    for (const override of overrides) override.parentNode = head;
+    head.childNodes.push(...overrides);
+  }
   const output = serialize(document);
   if (Buffer.byteLength(output) > MAX_HTML) tooLarge();
   return output;

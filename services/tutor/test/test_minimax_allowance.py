@@ -55,11 +55,11 @@ class AllowanceTests(unittest.TestCase):
         checkpoint = root / 'checkpoint'
         state = {'config': m.expected_config(False, m.OLD_LIMITS), 'counts': dict(m.BEFORE),
                  'stopped': False, 'commands': [], 'quota': {'jobs': 2, 'cost': 2000},
-                 'fail_recreate': False, 'fail_verify': False, 'concurrent': False}
+                 'fail_recreate': False, 'fail_verify': False, 'concurrent': False, 'revision': m.TARGET}
         def command(args, timeout=60):
             state['commands'].append(args)
             if args == ['git', 'rev-parse', 'HEAD']:
-                return m.TARGET
+                return state['revision']
             if args[-2:] == ['control.mjs', 'stop']:
                 state['stopped'] = True
             elif args[-2:] == ['control.mjs', 'resume']:
@@ -104,7 +104,11 @@ class AllowanceTests(unittest.TestCase):
                  contextlib.redirect_stdout(output):
                 code = m.remote_main()
             # Invalid confirmation fails before opening the lock, so close the fixture fd here.
-            if payload is not None and payload != m.PAYLOAD:
+            try:
+                os.fstat(fd)
+            except OSError:
+                pass
+            else:
                 os.close(fd)
             for secret in ('private-admin', 'private-kie', 'private-language', 'private-voice'):
                 self.assertNotIn(secret, output.getvalue())
@@ -132,6 +136,21 @@ class AllowanceTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(state['commands'], [])
             self.assertEqual(env.read_text(), ENV)
+
+    def test_verified_upgrade_revision_can_keep_the_same_explicit_budget_plan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env, checkpoint, state, invoke = self.fixture(Path(directory))
+            state['revision'] = 'a' * 40
+            code, result = invoke({**m.PAYLOAD, 'revision': state['revision']})
+            self.assertEqual(code, 0)
+            self.assertEqual(result['remaining'], 5)
+            self.assertEqual(result['additionalReserveCents'], 1000)
+
+    def test_revision_injection_is_rejected_before_ssh(self):
+        with patch.object(m.subprocess, 'run') as run:
+            with self.assertRaisesRegex(m.SafeFailure, 'INVALID_APP_REVISION'):
+                m.transmit('pass', Path('/tmp/control'), 'a'*40+';echo unsafe')
+            run.assert_not_called()
 
     def test_busy_or_changed_history_aborts_before_enable(self):
         for changes in ({'busy': 1}, {'tasks': 3}, {'calls': 8}):
@@ -214,3 +233,4 @@ class AllowanceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

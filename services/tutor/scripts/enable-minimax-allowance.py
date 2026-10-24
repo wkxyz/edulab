@@ -49,6 +49,11 @@ db.close();console.log(JSON.stringify(row));"""
 class SafeFailure(Exception):
     pass
 
+def checked_revision(value):
+    if not isinstance(value, str) or re.fullmatch(r'[0-9a-f]{40}', value) is None:
+        raise SafeFailure('INVALID_APP_REVISION')
+    return value
+
 def parse_env(text):
     pairs = {}
     for line in text.splitlines():
@@ -169,7 +174,13 @@ def remote_main():
     checkpoint = CHECKPOINT_DIR / (PLAN + '.json')
     try:
         payload = sys.stdin.buffer.read(4097)
-        if len(payload) > 4096 or json.loads(payload) != PAYLOAD:
+        if len(payload) > 4096:
+            raise SafeFailure('EXPLICIT_FIVE_TASK_TEN_YUAN_PLAN_REQUIRED')
+        confirmation = json.loads(payload)
+        if not isinstance(confirmation, dict):
+            raise SafeFailure('EXPLICIT_FIVE_TASK_TEN_YUAN_PLAN_REQUIRED')
+        target = checked_revision(confirmation.pop('revision', TARGET))
+        if confirmation != PAYLOAD:
             raise SafeFailure('EXPLICIT_FIVE_TASK_TEN_YUAN_PLAN_REQUIRED')
         lock = os.open('/run/edulab-minimax-deploy.lock', os.O_CREAT | os.O_RDWR, 0o600)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -199,8 +210,9 @@ def remote_main():
         quota = node_json(QUOTA_CHECK)
         if quota['jobs'] >= 20 or quota['cost'] > 2000:
             raise SafeFailure('DAILY_QUOTA_REQUIRES_REVIEW')
-        if command(['git', 'rev-parse', 'HEAD']) != TARGET or node_json(CONFIG_CHECK) != expected_config(False, OLD_LIMITS):
+        if command(['git', 'rev-parse', 'HEAD']) != target or node_json(CONFIG_CHECK) != expected_config(False, OLD_LIMITS):
             raise SafeFailure('RUNNING_APPLICATION_CHANGED')
+        command(['git', 'merge-base', '--is-ancestor', TARGET, target])
         fd = os.open(checkpoint, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as out:
             json.dump({'status': 'started', 'plan': PLAN, 'startedAt': time.time()}, out)
@@ -272,23 +284,27 @@ def remote_main():
     return 0 if result['status'] == 'enabled_bounded' else 1
 
 
-def transmit(source, control):
+def transmit(source, control, target=TARGET):
+    target = checked_revision(target)
     encoded = base64.b64encode(source.encode()).decode()
     remote = 'python3 -c ' + shlex.quote('import base64;exec(compile(base64.b64decode(' + repr(encoded) + "),'<edulab-allowance>','exec'))") + ' --remote'
     args = ['ssh', '-T', '-S', str(control), '-o', 'ControlMaster=no',
             '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
             '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', HOST, remote]
-    return subprocess.run(args, input=json.dumps(PAYLOAD), capture_output=True, text=True, timeout=360)
+    payload = PAYLOAD if target == TARGET else {**PAYLOAD, 'revision': target}
+    return subprocess.run(args, input=json.dumps(payload), capture_output=True, text=True, timeout=360)
 
 
 def local_main():
-    if sys.argv[1:] != [APPROVAL_FLAG]:
+    args = sys.argv[1:]
+    if args != [APPROVAL_FLAG] and not (len(args)==3 and args[0]==APPROVAL_FLAG and args[1]=='--revision'):
         print('未执行。此方案会新增5题，合计预算预留10元；需要明确确认参数。')
         return 1
     try:
+        target = checked_revision(args[2]) if len(args)==3 else TARGET
         print('按已确认方案恢复：新增5题，每题预留2元，合计新增预留10元。按实际用量计费，用完停止新增；不充值，不提交测试题。', flush=True)
         with ssh_session() as control:
-            completed = transmit(Path(__file__).read_text(), control)
+            completed = transmit(Path(__file__).read_text(), control, target)
         if not completed.stdout.strip():
             raise SafeFailure('SSH_RESULT_UNKNOWN_NO_AUTOMATIC_RETRY')
         result = json.loads(completed.stdout)
@@ -309,3 +325,4 @@ def local_main():
 
 if __name__ == '__main__':
     sys.exit(remote_main() if sys.argv[1:] == ['--remote'] else local_main())
+

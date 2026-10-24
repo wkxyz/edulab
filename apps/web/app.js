@@ -2,6 +2,7 @@ import {createClient} from './api-client.mjs';
 import {chapterStarts, formatTime, photoError, taskPhase, taskSteps, resultFormat} from './ui.mjs';
 import {CAPABILITIES, DEFAULT_CAPABILITY, getCapability} from './capabilities.mjs';
 import {editPhoto} from './photo-editor.mjs';
+import {formatMath} from './math-format.mjs';
 
 const app = document.querySelector('#app');
 let current='capture', taskId='', timer, clock, photo, busy=false, epoch=0, selectionId=0;
@@ -16,9 +17,9 @@ const icon = name => `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true
   check:'<path d="m5 12 4 4L19 6"/>', arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',
   book:'<path d="M12 5v15M3 4c4-1 7 0 9 2 2-2 5-3 9-2v15c-4-1-7 0-9 2-2-2-5-3-9-2z"/>',
 }[name]||''}</svg>`;
-const errors={PROVIDER_TIMEOUT:'解题或配音服务响应超时，本次任务已结束，系统不会自动重试。',PROVIDER_FAILED:'解题或配音服务暂时不可用，本次任务已结束，系统不会自动重试。',LIVE_LIMIT:'真实解题体验额度已用完，请等待服务方开放更多额度。',NOT_CONFIGURED:'真实解题服务尚未开通，可先体验示例讲解。',STOPPED:'服务已暂停，请稍后再试。',OWNER_LIMIT:'今天的体验次数已用完。',PROJECT_LIMIT:'今天的生成额度已用完。',TOTAL_LIMIT:'体验服务容量已满。',QUEUE_FULL:'当前排队较多，请稍后再试。',BUDGET_EXHAUSTED:'今天的服务额度已用完。',INVALID_IMAGE:'图片格式不正确，请重新选择。',REVIEW_FAILED:'解答未通过复核，请重新拍摄完整题目。',INVALID_LESSON:'暂时无法可靠讲解这道题，请重新拍摄。',CANCELLED:'任务已取消。',TIMEOUT:'本次生成超时，请稍后重试。',EXPIRED:'任务已过期。',INTERRUPTED:'服务重启，本次任务已停止，可重新提交。',INVALID_CAPABILITY:'请选择一种支持的学习方式。',INVALID_STYLE:'请选择该模块支持的板书风格。',INVALID_INPUT:'请输入题目文字或上传一道题。',INVALID_TEXT:'请检查题目文字长度和内容。',INVALID_SAMPLE:'该模块没有这个内置示例，请重新选择。'};
+const errors={PROVIDER_TIMEOUT:'解题或配音服务响应超时，本次任务已结束，系统不会自动重试。',PROVIDER_FAILED:'解题或配音服务暂时不可用，本次任务已结束，系统不会自动重试。',LIVE_LIMIT:'本站试用次数已用完，仍可查看内置示例。需要管理员设置新次数后继续。',NOT_CONFIGURED:'真实解题服务尚未开通，可先体验示例讲解。',STOPPED:'服务已暂停，请稍后再试。',OWNER_LIMIT:'今天的体验次数已用完。',PROJECT_LIMIT:'今天的生成额度已用完。',TOTAL_LIMIT:'体验服务容量已满。',QUEUE_FULL:'当前排队较多，请稍后再试。',BUDGET_EXHAUSTED:'今天的服务额度已用完。',INVALID_IMAGE:'图片格式不正确，请重新选择。',REVIEW_FAILED:'解答未通过复核，请重新拍摄完整题目。',INVALID_LESSON:'暂时无法可靠讲解这道题，请重新拍摄。',CANCELLED:'任务已取消。',TIMEOUT:'本次生成超时，请稍后重试。',EXPIRED:'任务已过期。',INTERRUPTED:'服务重启，本次任务已停止，可重新提交。',INVALID_CAPABILITY:'请选择一种支持的学习方式。',INVALID_STYLE:'请选择该模块支持的板书风格。',INVALID_INPUT:'请输入题目文字或上传一道题。',INVALID_TEXT:'请检查题目文字长度和内容。',INVALID_SAMPLE:'该模块没有这个内置示例，请重新选择。'};
 const api=createClient({message:code=>errors[code]||'暂时无法完成，请稍后重试。'});
-Object.assign(errors,{UNSUPPORTED_PROBLEM:'暂不支持这道题的可靠讲解，请换一道题或体验内置示例。',INVALID_INTERACTIVE_SPEC:'交互图形未通过检查，请换一道题或体验内置示例。',INVALID_ANIMATION:'动画讲解未通过检查，请换一道题或体验内置示例。',EXPORT_NOT_AVAILABLE:'当前讲解无法导出视频，请查看网页讲解。',ARTIFACT_EXPIRED:'讲解文件已过期，暂时无法打开。'});
+Object.assign(errors,{UNBALANCED_EQUATION:'化学方程式未通过原子或电荷守恒检查，本次已停止。',UNBALANCED_ELECTRONS:'电子转移未通过守恒检查，本次已停止。',INTERACTIVE_DEPENDENCY_MISSING:'交互讲解服务暂时不可用，请稍后再试。',INTERACTIVE_RENDER_FAILED:'交互页面制作未完成，本次已停止。',UNSUPPORTED_PROBLEM:'暂不支持这道题的可靠讲解，请换一道题或体验内置示例。',INVALID_INTERACTIVE_SPEC:'交互图形未通过检查，请换一道题或体验内置示例。',INVALID_ANIMATION:'动画讲解未通过检查，请换一道题或体验内置示例。',EXPORT_NOT_AVAILABLE:'当前讲解无法导出视频，请查看网页讲解。',ARTIFACT_EXPIRED:'讲解文件已过期，暂时无法打开。'});
 
 function showError(error){
   let box=document.querySelector('#error');
@@ -168,10 +169,10 @@ function renderResult(task){
     ${exporting?'<p class="export-status" role="status"><span class="spinner"></span>正在将现有讲解导出为 MP4，可先阅读网页预览。</p>':!interactive&&!hasVideo?'<p class="muted tiny">当前为网页预览。导出视频会使用已有讲解与配音，无需再次解题。</p>':''}
     ${task.status==='failed'?`<p class="error" role="alert">${esc(errors[task.error]||'视频导出未完成，可继续查看网页讲解。')}</p>`:''}
     <div class="lesson-heading"><div><span class="eyebrow">${esc(getCapability(task.capability).title)} · ${esc(result.disclosure||'AI 辅助讲解')}</span><h1>${esc(result.title||task.title)}</h1></div><span class="badge neutral">${interactive?'交互讲解':hasVideo?formatTime(result.duration):'网页预览'}</span></div>
-    ${result.problem?`<details class="problem-details"><summary>查看完整题目</summary><p>${esc(result.problem)}</p></details>`:''}
-    <div class="answer-card"><div><span class="mini-label">本题答案</span><div class="answer">${esc(result.answer)}</div></div><button class="small-button" id="copy-answer">复制答案</button></div><p class="muted tiny">AI 讲解仅供学习参考。${hasVideo?'点击解题步骤，可以跳到对应讲解。':interactive?'可在图形中操作视角或参数，对照步骤逐项检查。':'可对照右侧步骤，阅读网页中的动态板书。'}</p>
+    ${result.problem?`<details class="problem-details"><summary>查看完整题目</summary><p>${formatMath(result.problem)}</p></details>`:''}
+    <div class="answer-card"><div><span class="mini-label">本题答案</span><div class="answer">${formatMath(result.answer,{answer:true})}</div></div><button class="small-button" id="copy-answer">复制答案</button></div><p class="muted tiny">AI 讲解仅供学习参考。${hasVideo?'点击解题步骤，可以跳到对应讲解。':interactive?'可在图形中操作视角或参数，对照步骤逐项检查。':'可对照右侧步骤，阅读网页中的动态板书。'}</p>
     ${hasVideo&&preview?`<details class="preview-panel"><summary>查看网页预览</summary>${iframe(preview,`${result.title||'题目'}网页预览`)}</details>`:''}</section>
-    <aside class="panel chapters-panel"><div class="section-heading"><h2>解题步骤</h2><span class="mini-label">${steps.length} 步</span></div><div class="chapter-list">${steps.map((step,i)=>{const tag=hasVideo?'button':'div';return `<${tag} class="row step-result" ${hasVideo?`data-seek="${i}"`:''}><span class="number">${i+1}</span><span><span class="chapter-top"><strong>${esc(step.title)}</strong>${hasVideo?`<span class="chapter-time">${formatTime(starts[i])}</span>`:''}</span><span class="muted">${esc(step.description)}</span></span></${tag}>`;}).join('')}</div><button class="btn" id="again">再拍一道题${icon('arrow')}</button></aside></div>`;
+    <aside class="panel chapters-panel"><div class="section-heading"><h2>解题步骤</h2><span class="mini-label">${steps.length} 步</span></div><div class="chapter-list">${steps.map((step,i)=>{const tag=hasVideo?'button':'div';return `<${tag} class="row step-result" ${hasVideo?`data-seek="${i}"`:''}><span class="number">${i+1}</span><span><span class="chapter-top"><strong>${formatMath(step.title)}</strong>${hasVideo?`<span class="chapter-time">${formatTime(starts[i])}</span>`:''}</span><span class="muted step-description">${formatMath(step.description)}</span></span></${tag}>`;}).join('')}</div><button class="btn" id="again">再拍一道题${icon('arrow')}</button></aside></div>`;
   document.querySelector('#back').onclick=()=>nav('videos');document.querySelector('#again').onclick=()=>nav('capture');
   document.querySelector('#theater').onclick=event=>{const wide=document.querySelector('.shell').classList.toggle('wide-player');event.currentTarget.textContent=wide?'恢复布局':'放大观看';event.currentTarget.setAttribute('aria-pressed',String(wide));};
   document.querySelector('#copy-answer').onclick=async event=>{const button=event.currentTarget;try{await navigator.clipboard.writeText(result.answer);button.textContent='已复制';}catch{button.textContent='请选中答案复制';}};

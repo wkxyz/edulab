@@ -25,6 +25,52 @@ const position=(v,capability)=>{const p=pair(v);number(p[0],75,885);number(p[1],
 const rect=(v,capability)=>{array(v,4,4);position(v.slice(0,2),capability);position(v.slice(2),capability);if(v[2]-v[0]<60||v[3]-v[1]<60)bad();return [...v];};
 const round=n=>Math.round(n*1000)/1000;
 
+function visualPoint(p,capability,margin=[0,0]){
+ const top=capability==='chem-video'?330:140,epsilon=1e-7;
+ if(!p.every(Number.isFinite)||p[0]-margin[0]<75-epsilon||p[0]+margin[0]>885+epsilon||p[1]-margin[1]<top-epsilon||p[1]+margin[1]>825+epsilon)bad();
+}
+// Match the trusted runtime: movePoly rotates about the arithmetic mean of
+// vertices; circles scale about their centre; point radius is unchanged; solid
+// transforms change yaw before the upstream oblique projection (CAM.target=0).
+function geometryFootprint(o,u=0,action=null,atOverride=null){
+ const delta=action?action.translate.map(v=>v*u):[0,0],scale=action?1+(action.scale-1)*u:1,rotation=action?action.rotate*u:0;
+ const at=(atOverride||o.at)?.map((v,i)=>v+delta[i]);
+ if(['polyline','polygon'].includes(o.kind)){
+  const c=[0,1].map(i=>o.points.reduce((sum,p)=>sum+p[i],0)/o.points.length),cs=Math.cos(rotation),sn=Math.sin(rotation);
+  return o.points.map(p=>{const x=(p[0]-c[0])*scale,y=(p[1]-c[1])*scale;return [c[0]+delta[0]+x*cs-y*sn,c[1]+delta[1]+x*sn+y*cs];});
+ }
+ if(['circle','point','ball','charge','pulley'].includes(o.kind)){
+  const r=o.radius*(o.kind==='circle'?scale:1);
+  return [[at[0]-r,at[1]],[at[0]+r,at[1]],[at[0],at[1]-r],[at[0],at[1]+r]];
+ }
+ if(o.kind==='block'||o.kind==='glass'){
+  const cs=Math.cos(o.angle),sn=Math.sin(o.angle);
+  return [[-o.width/2,0],[o.width/2,0],[o.width/2,o.height],[-o.width/2,o.height]].map(([x,y])=>[at[0]+x*cs+y*sn,at[1]+x*sn-y*cs]);
+ }
+ if(o.kind==='solid'){
+  const yaw=o.yaw+rotation,cs=Math.cos(yaw),sn=Math.sin(yaw),size=o.scale*scale;
+  return o.vertices.map(([x,y,z])=>[at[0]+size*(x*cs+y*sn),at[1]+size*((-x*sn+y*cs)*Math.sin(o.pitch)-z*Math.cos(o.pitch))]);
+ }
+ return [];
+}
+function validateTransform(o,action,capability){
+ // eio(p) is monotone and covers [0,1], so checking eased progress u covers all
+ // playback times. For f(u)=c+d*u+(1+(k-1)u)R(theta*u)q, each coordinate obeys
+ // |f'| <= |d_axis| + |k-1|r + max(1,k)|theta|r. The projected solid obeys the
+ // same bound because the oblique projection has operator norm at most one.
+ // Every u is within 1/(2*N) of a sample; the derivative margin encloses all
+ // unsampled points, rather than relying on frame sampling alone.
+ const samples=256;
+ let radius=0,angular=action.rotate;
+ if(o.kind==='point')angular=0;
+ else if(o.kind==='circle'){radius=o.radius;angular=0;}
+ else if(o.kind==='solid')radius=o.scale*Math.max(...o.vertices.map(v=>Math.hypot(...v)));
+ else {const c=[0,1].map(i=>o.points.reduce((sum,p)=>sum+p[i],0)/o.points.length);radius=Math.max(...o.points.map(p=>Math.hypot(p[0]-c[0],p[1]-c[1])));}
+ const radial= Math.abs(action.scale-1)*radius+Math.max(1,action.scale)*Math.abs(angular)*radius;
+ const margin=action.translate.map(v=>(Math.abs(v)+radial)/(2*samples));
+ for(let i=0;i<=samples;i++)for(const p of geometryFootprint(o,i/samples,action))visualPoint(p,capability,margin);
+}
+
 // Small, bounded chemistry parser. The output is atom/charge data only; it never
 // interprets expressions or invokes Python, a shell, or the model's source code.
 function formula(input){
@@ -110,6 +156,7 @@ function cleanObject(raw,capability){
   case 'molMap':
    check(['values']);at();keys(raw.values||{},['m','n','N','V','c']);result.values=Object.fromEntries(Object.entries(raw.values||{}).map(([k,v])=>[k,str(v,24)]));break;
  }
+ for(const p of geometryFootprint(result))visualPoint(p,capability);
  return result;
 }
 
@@ -165,7 +212,7 @@ export function validateAnimation(value,capability=value?.capability){
    const target=id(a.target),o=byId.get(target);if(!o)bad();const line=integer(a.line,0,lines.length-1),fraction=number(a.fraction??0,0,1),endLine=integer(a.endLine??line,line,lines.length-1),endFraction=number(a.endFraction??1,0,1);if(line===endLine&&endFraction<=fraction)bad();
    const out={kind,target,line,fraction,endLine,endFraction};
    if(kind==='transform'){
-    if(!['polyline','polygon','circle','point','solid'].includes(o.kind))bad();out.translate=pair(a.translate??[0,0],-800,800);out.rotate=number(a.rotate??0,-Math.PI*4,Math.PI*4);out.scale=number(a.scale??1,0.1,4);
+    if(!['polyline','polygon','circle','point','solid'].includes(o.kind))bad();out.translate=pair(a.translate??[0,0],-800,800);out.rotate=number(a.rotate??0,-Math.PI*4,Math.PI*4);out.scale=number(a.scale??1,0.1,4);validateTransform(o,out,capability);
    }else if(a.translate!=null||a.rotate!=null||a.scale!=null)bad();
    if(kind==='move'){
     if(!['point','circle','block','ball','charge'].includes(o.kind))bad();out.motion=motion(a.motion);
@@ -176,7 +223,7 @@ export function validateAnimation(value,capability=value?.capability){
     if(omega)for(let k=-20;k<=20;k++)for(const phase of out.motion.kind==='circular'?[0,Math.PI/2]:[Math.PI/2]){const t=(phase+k*Math.PI-out.motion.phase)/omega;if(t>0&&t<out.motion.duration)times.push(t);}
     const samples=times.map(t=>displacement(out.motion,t));
     if(out.motion.kind==='constantAcceleration')for(let axis=0;axis<2;axis++){const t=-out.motion.velocity[axis]/out.motion.acceleration[axis];if(t>0&&t<out.motion.duration)samples.push(displacement(out.motion,t));}
-    for(const d of samples)position(o.at.map((v,i)=>v+d[i]),capability);
+    for(const d of samples){const at=o.at.map((v,i)=>v+d[i]);position(at,capability);for(const p of geometryFootprint(o,0,null,at))visualPoint(p,capability);}
    }else if(a.motion!=null)bad();
    if(kind==='react'&&!['particles','ice'].includes(o.kind))bad();
    if(kind==='flow'&&!['bridge','ray','beaker'].includes(o.kind))bad();return out;

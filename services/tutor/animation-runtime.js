@@ -215,6 +215,55 @@ const SC = Object.create(null);
       english.forEach((line, i) => txt(line, 960, 995 + i * 30, {size: 28, f: EN, c: C.gray}));
     }
   };
+
+  // The upstream engine fades the whole scene to its background at t=0, while
+  // speech-driven reveal actions start at the first voice cue (normally 2.2s).
+  // Paint the original question after that fade so even the first exported
+  // frame is useful. This overlay ends before the first spoken line; it never
+  // covers the diagram, board or subtitles during the actual explanation.
+  const openingEnd = TL.scenes[0].lines[0].start;
+  let openingLayout;
+  function openingLines(source, size, bold = false) {
+    ctx.font = `${bold ? 'bold ' : ''}${size}px ${SUB}`;
+    const lines = []; let current = '';
+    for (const character of source.replace(/\s+/g, ' ').trim()) {
+      if (current && ctx.measureText(current + character).width > 1720) {
+        lines.push(current.trimEnd()); current = character === ' ' ? '' : character;
+      } else current += character;
+    }
+    if (current) lines.push(current);
+    return lines;
+  }
+  function questionOpening(t) {
+    if (t < 0 || t >= openingEnd) return;
+    if (!openingLayout) {
+      const title = openingLines(spec.meta.title, 36, true);
+      const bodyY = 168 + (title.length - 1) * 47 + 66;
+      let size = 42, lines;
+      for (; size >= 20; size--) {
+        lines = openingLines(spec.meta.problem, size);
+        if ((lines.length - 1) * size * 1.3 + size <= 840 - bodyY) break;
+      }
+      openingLayout = {title, bodyY, lines, size: Math.max(20, size)};
+    }
+    const alpha = clamp((openingEnd - t) / Math.min(0.35, openingEnd));
+    grp(alpha, () => {
+      ctx.save();
+      ctx.fillStyle = physics || chemistry ? THEME.cardSolid : '#fffdf7';
+      ctx.beginPath(); ctx.roundRect(60, 86, 1800, 790, 24); ctx.fill();
+      ctx.strokeStyle = C.blue; ctx.lineWidth = 3; ctx.stroke();
+      ctx.restore();
+      txt('题目', 100, 118, {size: 24, f: SUB, c: C.blue, al: 'left', bold: true});
+      openingLayout.title.forEach((line, i) => txt(line, 960, 168 + i * 47, {size: 36, f: SUB, c: C.ink, bold: true}));
+      openingLayout.lines.forEach((line, i) => txt(line, 100, openingLayout.bodyY + i * openingLayout.size * 1.3, {size: openingLayout.size, f: SUB, c: C.ink, al: 'left'}));
+    });
+  }
+  const drawEngineFrame = renderFrame;
+  renderFrame = t => {drawEngineFrame(t); questionOpening(t);};
+  // boot()/the interactive loop use the global binding; MP4 rendering uses the
+  // window property. Updating both keeps the first frame identical in each.
+  window.renderFrame = renderFrame;
+
   window.animationStateAt = t => {
     let index = TL.scenes.findIndex(s => t >= s.start && t < s.end);
     if (index < 0) index = t < 0 ? 0 : TL.scenes.length - 1;

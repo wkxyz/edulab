@@ -32,7 +32,7 @@ export function createRunner(config){return async(task,ctx)=>{
    if(sample){ctx.stage('checking');result=await buildInteractive(capability,null,out,ctx,{sampleId:task.input.sampleId==='random'?'random':'default'});}
    else{
     const solved=await solveStructured(task.input,config,ctx,{instructions:interactiveInstructions(capability),
-     materialize:spec=>buildInteractive(capability,spec,out,ctx,{originalText:task.input.text||''})});
+     materialize:spec=>buildInteractive(capability,spec,out,ctx,task.input.text?{originalText:task.input.text}:{})});
     result=solved.result;
    }
    ctx.stage('rendering');await publicPreview(out,capability,ctx);

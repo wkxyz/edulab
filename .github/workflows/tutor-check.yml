@@ -39,6 +39,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Generate and play a narrated sample without paid APIs
         run: node --disable-warning=ExperimentalWarning services/tutor/scripts/smoke.mjs
+      - name: Verify responsive self-contained interactive layouts and formula contrast
+        run: PREVIEW_BROWSER_TESTS=1 node --disable-warning=ExperimentalWarning --test services/tutor/test/artifact-assets.test.mjs
       - name: Exercise all six capabilities, interactive controls and video export without paid APIs
         run: node --disable-warning=ExperimentalWarning services/tutor/scripts/capabilities-smoke.mjs
   deployment-config:

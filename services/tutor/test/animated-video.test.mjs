@@ -70,9 +70,75 @@ test('trusted runtime follows analytic motion linearly at the real speech midpoi
  run(`window.physicsBallCount=0; const originalBallForTest=ball; ball=(...args)=>{window.physicsBallCount++;return originalBallForTest(...args)}; window.renderFrame(${(start+end)/2})`);assert.equal(host.physicsBallCount,1);assert.ok(calls.some(c=>c[0]==='stroke'));assert.equal(host.ANIMATION_REPORT.engine,'physics-video');
 });
 
+test('the first frame shows the original question before speech, then restores the scene',async()=>{
+ for(const input of [fixture(),fixture('math-video'),chem()]){
+  const {host,run,calls}=await canvasHost(input);
+  // boot() itself must draw the question, not just the explicit MP4 API.
+  assert.ok(calls.some(c=>c[0]==='fillText'&&c[1]===input.meta.title));
+  assert.ok(calls.some(c=>c[0]==='fillText'&&c[1]===input.meta.problem));
+  calls.length=0;run('window.renderFrame(0)');
+  assert.ok(calls.some(c=>c[0]==='fillText'&&c[1]===input.meta.problem));
+  calls.length=0;run('window.renderFrame(4.2)');
+  assert.ok(!calls.some(c=>c[0]==='fillText'&&c[1]===input.meta.problem));
+  if(input.capability==='physics-video')assert.equal(host.animationStateAt(4.2).objects.ball.at[0],300);
+ }
+});
+
+test('opening question layout wraps all conditions inside the card at the input limit',async()=>{
+ const input=fixture();input.meta.title='完整题目与已知条件';input.meta.problem='条件'.repeat(899)+'。';
+ const {run,calls}=await canvasHost(input);calls.length=0;run('window.renderFrame(0)');
+ const body=calls.filter(c=>c[0]==='fillText'&&c[2]===100&&c[3]>=230);
+ assert.ok(body.length>1);assert.equal(body.map(c=>c[1]).join(''),input.meta.problem);
+ assert.ok(body.every(c=>c[3]<840));
+});
+
 test('actual handdrawn engine renders geometric transforms and numerical graph samples',async()=>{
  const input=fixture('math-video');input.scenes[0].objects=[{id:'tri',kind:'polygon',points:[[180,600],[180,300],[600,600]]},{id:'g',kind:'graph',at:[110,650],width:600,height:120,xRange:[0,4],yRange:[0,16],points:[[0,0],[1,1],[2,4],[3,9],[4,16]]}];input.scenes[0].actions=[{kind:'transform',target:'tri',line:0,translate:[40,0],rotate:0.1,scale:0.8}];
  const {host,run,calls}=await canvasHost(input);run('window.renderFrame(4.2)');assert.ok(calls.some(c=>c[0]==='stroke'));assert.equal(host.animationStateAt(6.2).objects.tri.scale,0.8);assert.equal(host.ANIMATION_REPORT.engine,'math-video');
+});
+
+test('transforms reject whole-stage exits and intermediate rotation excursions',async()=>{
+ const scene=(shape,action)=>{const input=fixture('math-video');input.scenes[0].objects=[shape];input.scenes[0].actions=[{kind:'transform',target:shape.id,line:0,...action}];return input;};
+ const triangle={id:'tri',kind:'polygon',points:[[180,600],[180,300],[600,600]]};
+ assert.throws(()=>validateAnimation(scene(triangle,{translate:[800,0]}),'math-video'),/INVALID_ANIMATION/);
+ // Both endpoint poses fit, but the vertical pose halfway through the turn does not.
+ const segment={id:'edge',kind:'polyline',points:[[110,550],[830,550]]};
+ assert.throws(()=>validateAnimation(scene(segment,{rotate:Math.PI}),'math-video'),/INVALID_ANIMATION/);
+ // The narrow peak is between all 257 uniform samples. The analytic derivative
+ // margin must catch it, rather than trusting only the sampled coordinates.
+ const angle=-Math.PI/256,c=[585.001,480],r=300;
+ const needle={id:'needle',kind:'polyline',points:[[c[0]+r*Math.cos(angle),c[1]+r*Math.sin(angle)],[c[0]-r*Math.cos(angle),c[1]-r*Math.sin(angle)]]};
+ for(let i=0;i<=256;i++)assert.ok(c[0]+r*Math.cos(angle+2*Math.PI*i/256)<=885);
+ assert.ok(c[0]+r>885);
+ assert.throws(()=>validateAnimation(scene(needle,{rotate:2*Math.PI}),'math-video'),/INVALID_ANIMATION/);
+ const valid=scene(triangle,{translate:[40,0],rotate:0.1,scale:0.8});assert.doesNotThrow(()=>validateAnimation(valid,'math-video'));
+ const host=await canvasHost(valid);
+ for(const t of [2.2,3.2,4.2,5.2,6.2]){
+  const vertices=host.run(`(()=>{const s=window.animationStateAt(${t}).objects.tri;return movePoly(window.ANIMATION_SPEC.scenes[0].objects[0].points,...s.translate,s.rotate,s.scale)})()`);
+  for(const [x,y]of vertices)assert.ok(x>=75&&x<=885&&y>=140&&y<=825);
+ }
+});
+
+test('circle and point footprints and the actual solid projection stay within the diagram',()=>{
+ const input=(shape,action)=>{const spec=fixture('math-video');spec.scenes[0].objects=[shape];spec.scenes[0].actions=action?[{kind:'transform',target:shape.id,line:0,...action}]:[];return spec;};
+ const circle={id:'circle',kind:'circle',at:[470,450],radius:100};
+ assert.throws(()=>validateAnimation(input({...circle,at:[120,450],radius:60}),'math-video'),/INVALID_ANIMATION/);
+ assert.throws(()=>validateAnimation(input(circle,{scale:4}),'math-video'),/INVALID_ANIMATION/);
+ assert.doesNotThrow(()=>validateAnimation(input(circle,{translate:[50,20],rotate:4*Math.PI,scale:1.2}),'math-video'));
+ const point={id:'point',kind:'point',at:[470,450],radius:100};
+ // Upstream dot() uses its fixed radius; transform.scale does not enlarge points.
+ assert.doesNotThrow(()=>validateAnimation(input(point,{scale:4}),'math-video'));
+ assert.throws(()=>validateAnimation(input({...point,at:[880,450],radius:10}),'math-video'),/INVALID_ANIMATION/);
+ const solid={id:'solid',kind:'solid',at:[470,500],vertices:[[-1,-1,0],[1,-1,0],[0,1,0],[0,0,1.5]],edges:[[0,1],[1,2],[2,0],[0,3]],scale:80};
+ assert.doesNotThrow(()=>validateAnimation(input(solid,{translate:[30,0],rotate:2*Math.PI,scale:1.2}),'math-video'));
+ assert.throws(()=>validateAnimation(input({...solid,scale:180,vertices:[[10,0,0],[1,0,0],[0,1,0],[0,0,1]]}),'math-video'),/INVALID_ANIMATION/);
+ // Fixed pitch and a yaw turn project a y-aligned solid outside the x boundary
+ // only during the turn; its initial and final projections are both inside.
+ const turning={...solid,at:[700,500],yaw:0,scale:70,vertices:[[0,3,0],[0,2,0],[0,2,1],[0,3,1]]};
+ assert.doesNotThrow(()=>validateAnimation(input(turning),'math-video'));
+ assert.throws(()=>validateAnimation(input(turning,{rotate:Math.PI}),'math-video'),/INVALID_ANIMATION/);
+ const moving=fixture();moving.scenes[0].actions[0].motion.acceleration=[4.4,0]; // centre x=884 fits; radius extends to900.
+ assert.throws(()=>validateAnimation(moving,'physics-video'),/INVALID_ANIMATION/);
 });
 
 test('actual chemistry engine derives stoichiometric particles and renders its equation',async()=>{

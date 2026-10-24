@@ -1,7 +1,9 @@
 import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {randomBytes,timingSafeEqual} from 'node:crypto';import {fileURLToPath,pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
 import {Tutor} from './service.mjs';import {createRunner} from './runner.mjs';import {configFromEnv} from './config.mjs';import {TutorError,fail} from './validation.mjs';
 import {CAPABILITIES} from '../../apps/web/capabilities.mjs';
 const HERE=path.dirname(fileURLToPath(import.meta.url));
+const KATEX=path.dirname(createRequire(import.meta.url).resolve('katex/dist/katex.min.js'));
 const json=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(data));};
 async function body(req){let n=0;const chunks=[];for await(const chunk of req){n+=chunk.length;if(n>5601000)fail('PAYLOAD_TOO_LARGE',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString());}catch(e){if(e instanceof TutorError)throw e;fail('INVALID_JSON');}}
 export async function startServer(options={}){
@@ -47,7 +49,13 @@ export async function startServer(options={}){
     fail('NOT_FOUND',404);
    }
    if(!['GET','HEAD'].includes(req.method))fail('NOT_FOUND',404);
-   const root=path.resolve(HERE,'../../apps/web'),files={'/':'index.html','/app.js':'app.js','/api-client.mjs':'api-client.mjs','/ui.mjs':'ui.mjs','/capabilities.mjs':'capabilities.mjs','/photo-editor.mjs':'photo-editor.mjs','/style.css':'style.css'};
+   const mathAsset=/^\/assets\/katex\/0\.16\.9\/(katex\.min\.(?:js|css)|fonts\/KaTeX_[A-Za-z0-9-]+\.(?:woff2|woff|ttf))$/.exec(p);
+   if(mathAsset){
+    const file=path.join(KATEX,mathAsset[1]);if(!fs.existsSync(file)||!fs.statSync(file).isFile())fail('NOT_FOUND',404);
+    const ext=path.extname(file),type={'.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf'}[ext];
+    const data=fs.readFileSync(file);res.writeHead(200,{'content-type':type,'cache-control':'public, max-age=86400','x-content-type-options':'nosniff','content-length':data.length});res.end(req.method==='HEAD'?undefined:data);return;
+   }
+   const root=path.resolve(HERE,'../../apps/web'),files={'/':'index.html','/app.js':'app.js','/api-client.mjs':'api-client.mjs','/ui.mjs':'ui.mjs','/capabilities.mjs':'capabilities.mjs','/math-format.mjs':'math-format.mjs','/photo-editor.mjs':'photo-editor.mjs','/style.css':'style.css'};
    const name=files[p];if(!name||!fs.existsSync(path.join(root,name)))fail('NOT_FOUND',404);
    const data=fs.readFileSync(path.join(root,name));res.writeHead(200,{'content-type':/\.m?js$/.test(name)?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache','referrer-policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:data);
   }catch(e){if(!res.headersSent)json(res,e instanceof TutorError?e.status:500,{error:e instanceof TutorError?e.code:'INTERNAL_ERROR'});else res.destroy();}

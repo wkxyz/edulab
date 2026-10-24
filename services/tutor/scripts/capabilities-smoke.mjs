@@ -65,6 +65,18 @@ async function validArtifact(url,{type,attachment=false}={}){
 async function openResult(page,task){
   await page.goto(base+'/#task/'+task.id,{waitUntil:'domcontentloaded',timeout:UI_MS});
   await page.getByRole('heading',{name:task.result.title,exact:true}).waitFor({timeout:UI_MS});
+  if(['solid-geometry','analytic-geometry'].includes(task.capability)){
+    // These checks address the parent result cards, not the separate iframe.
+    await page.waitForFunction(()=>!!document.querySelector('.answer .katex')&&!!document.querySelector('.chapters-panel .katex'),null,{timeout:UI_MS});
+    assert.ok(await page.locator('.answer .katex').count()>0,'the exact answer must render as mathematical notation');
+    assert.ok(await page.locator('.chapters-panel .katex').count()>0,'the parent explanation must typeset its formulas');
+    assert.equal(await page.locator('#app .katex-error').count(),0,'built-in parent formulas must parse successfully');
+    await page.evaluate(()=>document.fonts.ready);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'desktop formulas must stay inside their cards');
+    await page.setViewportSize({width:390,height:844});await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'mobile formulas must scroll inside cards instead of expanding the page');
+    await page.setViewportSize({width:1280,height:960});await page.waitForTimeout(150);
+  }
   const iframe=page.locator('iframe.lesson-preview').first();await iframe.waitFor({state:'visible',timeout:UI_MS});
   assert.equal(await iframe.getAttribute('sandbox'),'allow-scripts');
   assert.equal(await page.locator('video').count(),0,'preview-first tasks must not invent a video URL');

@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import {randomUUID} from 'node:crypto';
 import {CAPABILITIES, DEFAULT_CAPABILITY, getCapability} from '../../../apps/web/capabilities.mjs';
 import * as ui from '../../../apps/web/ui.mjs';
+import {formatMath} from '../../../apps/web/math-format.mjs';
 
 const source=(await fs.readFile(new URL('../../../apps/web/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 
@@ -40,7 +41,7 @@ function harness({live=true}={}){
     if(url==='/api/tasks')return {tasks:[...taskMap.values()]};
     return taskMap.get(url.split('/')[3]);
   }
-  const context=vm.createContext({document,window,location,navigator:{onLine:true,clipboard:{writeText:async()=>{}}},crypto:{randomUUID},createClient:()=>api,editPhoto:async()=>null,...ui,CAPABILITIES,DEFAULT_CAPABILITY,getCapability,setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},Date,console});
+  const context=vm.createContext({document,window,location,navigator:{onLine:true,clipboard:{writeText:async()=>{}}},crypto:{randomUUID},createClient:()=>api,editPhoto:async()=>null,formatMath,...ui,CAPABILITIES,DEFAULT_CAPABILITY,getCapability,setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},Date,console});
   vm.runInContext(source,context);
   return {context,app,document,requests,taskMap,location,async click(selector){const node=document.querySelector(selector);assert.ok(node,`missing ${selector}`);assert.equal(typeof node.onclick,'function',`${selector} must respond`);await node.onclick({currentTarget:node});},select(id){return this.click(`[data-capability="${id}"]`);},async settle(){await new Promise(resolve=>setImmediate(resolve));}};
 }
