@@ -1,5 +1,6 @@
 import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';
 import {startServer} from '../server.mjs';import {runProcess} from '../render.mjs';
+import {verifyKieFlow} from './kie-flow.mjs';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-smoke-'));
 const {server,tutor}=await startServer({dataDir:dir,port:0,renderOptions:{fps:6,scale:1}});
 const base=`http://127.0.0.1:${server.address().port}`;let browser;
@@ -40,4 +41,5 @@ try{
  console.log('SMOKE_RESULT',JSON.stringify({playback,stages:'upload disabled -> sample cancelled -> sample completed -> reload playback',httpRange:206,consoleErrors:issues.length,externalPaidCalls:0}));
  // Public sample UI only, never user uploads or credentials. Kept in the existing job log to avoid artifact storage.
  for(const name of ['mobile','processing','result','desktop'])console.log('QA_IMAGE_'+name.toUpperCase()+':'+fs.readFileSync(path.join(dir,name+'.png')).toString('base64'));
+ await verifyKieFlow(dir,task.id);
 }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}

@@ -1,0 +1,29 @@
+// Protocol integration with fake KIE responses and real media rendering. Never sends paid requests.
+import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import {setTimeout as delay} from 'node:timers/promises';
+import {startServer} from '../server.mjs';import {configFromEnv} from '../config.mjs';import {sampleLesson} from '../sample.mjs';
+export async function verifyKieFlow(root,sourceTask){
+ const original=globalThis.fetch;let chats=0,voices=0,uploads=0,downloads=0,queries=0;let app;
+ const clips=sampleLesson.intro.length+sampleLesson.scenes.reduce((n,s)=>n+s.beats.length,0);
+ globalThis.fetch=async(url,options={})=>{
+  const value=String(url);
+  if(value.startsWith('http://127.0.0.1:'))return original(url,options);
+  if(value==='https://kieai.redpandaai.co/api/file-base64-upload'){uploads++;return Response.json({code:200,success:true,data:{downloadUrl:'https://tempfile.redpandaai.co/mock-question.png'}});}
+  if(value==='https://api.kie.ai/gemini-3-pro/v1/chat/completions'){chats++;return Response.json({choices:[{message:{content:JSON.stringify(chats===1?sampleLesson:{correct:true})}}]});}
+  if(value==='https://api.kie.ai/api/v1/jobs/createTask'){const id=voices++;return Response.json({code:200,data:{taskId:'voice-'+id}});}
+  if(value.startsWith('https://api.kie.ai/api/v1/jobs/recordInfo?taskId=voice-')){queries++;const index=Number(new URL(value).searchParams.get('taskId').slice(6));return Response.json({code:200,data:{state:'success',resultJson:JSON.stringify({resultUrls:[`https://tempfile.aiquickdraw.com/voice-${index}.wav`]})}});}
+  const match=/^https:\/\/tempfile\.aiquickdraw\.com\/voice-(\d+)\.wav$/.exec(value);
+  if(match){downloads++;assert.equal(options.headers?.authorization,undefined);return new Response(fs.readFileSync(path.join(root,'jobs',sourceTask,`speech-${match[1]}.wav`)));}
+  throw new Error('Unexpected external request in mock KIE integration');
+ };
+ try{
+  app=await startServer({...configFromEnv({AI_PROVIDER:'kie',KIE_API_KEY:'mock-only'}),dataDir:path.join(root,'kie-integration'),port:0,liveEnabled:true,dayBudgetCents:100,jobBudgetCents:10,maxMs:90000,renderOptions:{fps:6,scale:1}});
+  const base=`http://127.0.0.1:${app.server.address().port}`,token=(await original(base+'/api/session',{method:'POST'}).then(r=>r.json())).token;
+  const response=await original(base+'/api/tasks',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json','idempotency-key':'kie-flow'},body:JSON.stringify({style:'chalk',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XKqkAAAAASUVORK5CYII='})});assert.equal(response.status,202);
+  let task=await response.json();for(let i=0;i<90&&['queued','running'].includes(task.status);i++){await delay(1000);task=app.tutor.get(task.id,token);}
+  assert.equal(task.status,'completed',task.error);assert.equal(task.mode,'live');assert.equal(task.result.answer,'x = 4');
+  assert.equal(chats,2);assert.equal(voices,clips);assert.equal(uploads,1);assert.equal(queries,clips);assert.equal(downloads,clips);
+  const counters=app.tutor.db.prepare('SELECT calls,requests FROM tasks WHERE id=?').get(task.id);assert.equal(counters.calls,2+clips);assert.equal(counters.requests,3+clips*3);
+  const media=await original(base+task.result.video,{headers:{range:'bytes=0-1023'}});assert.equal(media.status,206);assert.equal((await media.arrayBuffer()).byteLength,1024);
+  console.log('MOCK_KIE_RESULT',JSON.stringify({status:task.status,answer:task.result.answer,uploads,chats,voices,queries,downloads,...counters,realPaidCalls:0}));
+ }finally{if(app){await new Promise(r=>app.server.close(r));app.tutor.close();}globalThis.fetch=original;}
+}
