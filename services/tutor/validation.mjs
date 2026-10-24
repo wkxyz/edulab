@@ -4,9 +4,16 @@ export class TutorError extends Error {
 export const fail=(code,status)=>{throw new TutorError(code,status);};
 export function validateInput(input){
  if(!input||typeof input!=='object'||Array.isArray(input))fail('INVALID_INPUT');
+ const capability=input.capability??DEFAULT_CAPABILITY;
+ const entry=CAPABILITIES.find(x=>x.id===capability);if(!entry)fail('INVALID_CAPABILITY');
  const style=input.style||'whiteboard';
- if(!['chalk','lab','whiteboard','notebook'].includes(style))fail('INVALID_STYLE');
- if(input.sampleId){if(input.sampleId!=='equation')fail('INVALID_SAMPLE');return {sampleId:input.sampleId,style};}
+ if(!['chalk','lab','whiteboard','notebook','handdrawn'].includes(style)||style==='handdrawn'&&capability!=='math-video')fail('INVALID_STYLE');
+ if(input.exportVideo!==undefined&&typeof input.exportVideo!=='boolean')fail('INVALID_INPUT');
+ const settings={capability,style,...(entry.kind==='video'?{exportVideo:input.exportVideo!==false}:{})};
+ if(input.sampleId){
+  if(!['equation','default','random'].includes(input.sampleId)||input.sampleId==='equation'&&capability!=='math-video'||input.sampleId==='random'&&entry.kind!=='interactive')fail('INVALID_SAMPLE');
+  return {sampleId:input.sampleId,...settings};
+ }
  const text=typeof input.text==='string'?input.text.trim():'';
  if(text.length>1600)fail('TEXT_TOO_LONG');
  let image;
@@ -19,13 +26,15 @@ export function validateInput(input){
   if(!valid)fail('INVALID_IMAGE');image=input.image;
  }
  if(!text&&!image)fail('EMPTY_QUESTION');
- return {text,image,style};
+ return {text,image,...settings};
 }
 const boundedText=(s,n=500)=>{if(typeof s!=='string'||!s.trim()||s.length>n||s.includes('\0'))fail('INVALID_LESSON');return s.trim();};
 export function validateLesson(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||JSON.stringify(value).length>48000)fail('INVALID_LESSON');
  const meta={title:boundedText(value.meta?.title,80),problem:boundedText(value.meta?.problem,1800),answer:boundedText(value.meta?.answer,500),style:['chalk','lab','whiteboard','notebook'].includes(value.meta?.style)?value.meta.style:'whiteboard'};
  if(!Array.isArray(value.intro)||!value.intro.length||!Array.isArray(value.scenes)||!value.scenes.length||value.scenes.length>6)fail('INVALID_LESSON');
+ let figure,figureContext;
+ try{figure=validateFigure(value.figure);figureContext=createFigureActionContext(figure,value.scenes.flatMap(s=>(s.beats||[]).flatMap(b=>b.do||[])));}catch(e){fail(e.code||'UNSUPPORTED_ANIMATION');}
  const intro=value.intro.map(x=>({show:boundedText(x.show),say:boundedText(x.say,160),speak:boundedText(x.speak||x.say,160)}));
  const scenes=value.scenes.map(x=>{
   if(!Array.isArray(x.beats)||!x.beats.length)fail('INVALID_LESSON');
@@ -34,7 +43,9 @@ export function validateLesson(value){
    if(b.do&&!Array.isArray(b.do))fail('INVALID_LESSON');
    for(const a of b.do||[]){
     if(out.do.length>=8)fail('INVALID_LESSON');
-    if(typeof a.write==='string')out.do.push({write:boundedText(a.write,160)});
+    let visual;try{visual=validateFigureAction(a,figure,figureContext);}catch(e){fail(e.code||'UNSUPPORTED_ANIMATION');}
+    if(visual)out.do.push(visual);
+    else if(typeof a.write==='string')out.do.push({write:boundedText(a.write,160)});
     else if(a.emph==='last')out.do.push({emph:'last'});
     else if(typeof a.tip==='string')out.do.push({tip:boundedText(a.tip,80),hold:4});
     else fail('UNSUPPORTED_ANIMATION');
@@ -42,8 +53,8 @@ export function validateLesson(value){
   })};
  });
  if(intro.length+scenes.reduce((n,s)=>n+s.beats.length,0)>12)fail('LESSON_TOO_LONG');
- // The initial public adapter accepts declarative board actions only. Never execute model-supplied JS,
- // function expressions or HTML. Advanced diagrams can be added with a separately validated schema.
- if(value.figure)fail('UNSUPPORTED_ANIMATION');
- return {meta,intro,scenes};
+ // Figures and animation operations are bounded data interpreted by the trusted edulab engine.
+ return {meta,intro,scenes,...(figure?{figure}:{})};
 }
+import {CAPABILITIES,DEFAULT_CAPABILITY} from '../../apps/web/capabilities.mjs';
+import {validateFigure,validateFigureAction,createFigureActionContext} from './lesson-figures.mjs';

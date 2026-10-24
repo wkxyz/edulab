@@ -1,3 +1,5 @@
+import {getCapability} from './capabilities.mjs';
+
 export const clamp = (n, min = 0, max = 1) => Math.min(max, Math.max(min, n));
 
 export function selectionFromPoints(a, b) {
@@ -19,7 +21,11 @@ export function cropBounds(selection, imageWidth, imageHeight) {
 }
 
 export function taskPhase(task) {
+  if (task.mode === 'export') return task.status === 'queued'
+    ? {key: 'queued', index: 0, label: '等待导出视频', detail: '已有讲解与配音已保留，轮到后开始制作 MP4。'}
+    : {key: 'rendering', index: 0, label: '正在导出视频', detail: '使用已有讲解与配音制作 MP4，无需再次解题。'};
   if (task.status === 'queued') return {key: 'queued', index: 0, label: '等待开始', detail: '前面的讲解处理完成后，会自动开始。'};
+  const interactive = getCapability(task.capability).kind === 'interactive';
   const phases = {
     recognizing: {index: 0, label: '正在识别题目', detail: '读取题干、数字和图形条件。'},
     solving: {index: 1, label: '正在分析解法', detail: '梳理解题步骤和讲解思路。'},
@@ -27,7 +33,27 @@ export function taskPhase(task) {
     voicing: {index: 2, label: '正在生成配音', detail: '把解题步骤制作成语音讲解。'},
     rendering: {index: 3, label: '正在制作视频', detail: '将配音、公式和动态板书合成视频。'},
   };
+  if (interactive) {
+    phases.rendering = {index: 2, label: '正在制作交互讲解', detail: '生成图形、参数控件和分步说明。'};
+    phases.voicing = phases.rendering;
+    phases.building = phases.rendering;
+  }
   return {key: task.stage, ...(phases[task.stage] || phases.recognizing)};
+}
+
+export function taskSteps(task) {
+  if (task.mode === 'export') return ['导出视频'];
+  return getCapability(task.capability).kind === 'interactive'
+    ? ['读取题目', '解题与复核', '制作交互讲解']
+    : ['识别题目', '解题与复核', '生成配音', '制作视频'];
+}
+
+// Older tasks contain only an MP4 URL. Keep them playable while the new
+// interactive format uses a separate, sandboxed HTML preview.
+export function resultFormat(task) {
+  if (task.result?.format === 'interactive' || task.result?.format === 'video') return task.result.format;
+  if (task.result?.video) return 'video';
+  return getCapability(task.capability).kind;
 }
 
 export function photoError(file) {

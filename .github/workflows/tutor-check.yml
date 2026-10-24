@@ -14,11 +14,18 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
+      - name: Install exact math kernels
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-sympy
+          npm ci --prefix services/tutor --ignore-scripts --no-audit --no-fund
       - name: Backend behavior and quota checks
         run: npm test --prefix services/tutor
       - name: Private deployment and bounded acceptance checks without network calls
@@ -32,6 +39,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Generate and play a narrated sample without paid APIs
         run: node --disable-warning=ExperimentalWarning services/tutor/scripts/smoke.mjs
+      - name: Exercise all six capabilities, interactive controls and video export without paid APIs
+        run: node --disable-warning=ExperimentalWarning services/tutor/scripts/capabilities-smoke.mjs
   deployment-config:
     runs-on: ubuntu-latest
     timeout-minutes: 12

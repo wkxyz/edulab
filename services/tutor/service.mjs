@@ -1,25 +1,35 @@
 import {randomUUID,randomBytes} from 'node:crypto';
 import {openStore} from './store.mjs';
 import {validateInput,TutorError,fail} from './validation.mjs';
+import {getCapability} from '../../apps/web/capabilities.mjs';
 
-const knownErrors=new Set(['STOPPED','CANCELLED','EXPIRED','TIMEOUT','NOT_CONFIGURED','REVIEW_FAILED','INVALID_LESSON','UNSUPPORTED_ANIMATION','LESSON_TOO_LONG','INVALID_FORMULA','RENDER_FAILED','PROVIDER_FAILED','PROVIDER_TIMEOUT','CALL_LIMIT']);
+const knownErrors=new Set(['STOPPED','CANCELLED','EXPIRED','TIMEOUT','NOT_CONFIGURED','REVIEW_FAILED','INVALID_LESSON','UNSUPPORTED_ANIMATION','UNSUPPORTED_PROBLEM','INVALID_INTERACTIVE_SPEC','INTERACTIVE_DEPENDENCY_MISSING','INTERACTIVE_RENDER_FAILED','INVALID_ANIMATION','UNBALANCED_EQUATION','UNBALANCED_ELECTRONS','ARTIFACT_EXPIRED','EXPORT_NOT_AVAILABLE','LESSON_TOO_LONG','INVALID_FORMULA','RENDER_FAILED','PROVIDER_FAILED','PROVIDER_TIMEOUT','CALL_LIMIT']);
 export class Tutor {
  constructor(options={}){
-  this.options={dailyLimit:20,ownerLimit:5,totalLimit:200,liveTaskLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,...options};
+  this.options={dailyLimit:20,ownerLimit:5,sampleOwnerLimit:options.ownerLimit??20,totalLimit:200,liveTaskLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,...options};
   this.db=openStore(options.dataDir);this.running=new Map();this.closed=false;this.draining=false;
   this.runner=options.runner||(async()=>fail('NOT_CONFIGURED',503));
  }
  isStopped(){return this.db.prepare("SELECT value FROM settings WHERE key='stopped'").get().value==='1';}
  liveLimitReached(){return this.db.prepare("SELECT count(*) n FROM tasks WHERE mode='live'").get().n>=this.options.liveTaskLimit;}
  setStopped(value){this.db.prepare("UPDATE settings SET value=? WHERE key='stopped'").run(value?'1':'0');if(value){for(const controller of this.running.values())controller.abort();}else if(this.options.autoRun)this.wake();}
- create(raw,owner,idem){
+ create(raw,owner,idem,exportSource=null){
   if(!/^[a-zA-Z0-9_-]{1,128}$/.test(owner||''))fail('INVALID_SESSION',401);
   if(!/^[a-zA-Z0-9_-]{1,128}$/.test(idem||''))fail('INVALID_IDEMPOTENCY');
   if(this.isStopped())fail('STOPPED',503);
-  const input=validateInput(raw),json=JSON.stringify(input);
+  let input;
+  if(exportSource){
+   const source=this.db.prepare('SELECT * FROM tasks WHERE id=? AND owner=?').get(exportSource,owner);
+   if(!source)fail('NOT_FOUND',404);if(source.status!=='completed'||!source.result)fail('EXPORT_NOT_AVAILABLE',409);
+   const result=JSON.parse(source.result),prior=JSON.parse(source.input);
+   if(result.format==='interactive')fail('EXPORT_NOT_AVAILABLE',409);
+   if(result.videoReady!==false)return this.public(source);
+   input={exportOf:source.id,capability:prior.capability||'math-video',style:prior.style||'whiteboard',sourceResult:result};
+  }else input=validateInput(raw);
+  const json=JSON.stringify(input);
   const old=this.db.prepare('SELECT * FROM tasks WHERE owner=? AND idem=?').get(owner,idem);
-  if(old){if(old.input!==json)fail('IDEMPOTENCY_CONFLICT',409);return this.public(old);}
-  const mode=input.sampleId?'sample':'live';
+  if(old){const previous=exportSource?old.input:JSON.stringify(validateInput(JSON.parse(old.input)));if(previous!==json)fail('IDEMPOTENCY_CONFLICT',409);return this.public(old);}
+  const mode=exportSource?'export':input.sampleId?'sample':'live';
   const o=this.options;
   if(mode==='live'&&(!o.liveEnabled||!o.configured||o.dayBudgetCents<=0||o.jobBudgetCents<=0))fail('NOT_CONFIGURED',503);
   const now=Date.now(),day=new Date(now).toISOString().slice(0,10),reserve=mode==='live'?o.jobBudgetCents:0;
@@ -33,7 +43,9 @@ export class Tutor {
    if((usage?.jobs||0)>=o.dailyLimit)fail('PROJECT_LIMIT',429);
    if(reserve&&(usage?.cost||0)+reserve>o.dayBudgetCents)fail('BUDGET_EXHAUSTED',429);
    const own=this.db.prepare('SELECT jobs FROM owner_daily WHERE owner=? AND day=?').get(owner,day);
-   if((own?.jobs||0)>=o.ownerLimit)fail('OWNER_LIMIT',429);
+   const start=Date.parse(day+'T00:00:00Z');
+   const paidOwn=mode==='live'?this.db.prepare("SELECT count(*) n FROM tasks WHERE owner=? AND mode='live' AND created>=? AND created<?").get(owner,start,start+86400000).n:0;
+   if(mode==='live'?paidOwn>=o.ownerLimit:(own?.jobs||0)>=o.sampleOwnerLimit)fail('OWNER_LIMIT',429);
    const id=randomUUID(),media=randomBytes(24).toString('hex');
    this.db.prepare("INSERT INTO tasks(id,owner,idem,input,mode,status,stage,created,expires,reserve,media_token) VALUES(?,?,?,?,?,'queued','queued',?,?,?,?)").run(id,owner,idem,json,mode,now,now+o.maxMs,reserve,media);
    this.db.prepare('INSERT INTO daily VALUES(?,1,?,?) ON CONFLICT(day) DO UPDATE SET jobs=jobs+1,calls=calls+excluded.calls,cost=cost+excluded.cost').run(day,mode==='live'?14:0,reserve);
@@ -41,9 +53,12 @@ export class Tutor {
    this.db.exec('COMMIT');if(o.autoRun)this.wake();return this.get(id,owner);
   }catch(e){this.db.exec('ROLLBACK');throw e;}
  }
+ createExport(id,owner){if(!/^[a-f0-9-]{36}$/.test(id))fail('NOT_FOUND',404);return this.create(null,owner,'export_'+id,id);}
  public(row){
   if(!row)return null;const input=JSON.parse(row.input),result=row.result?JSON.parse(row.result):null;
-  return {id:row.id,status:row.status,stage:row.stage,mode:row.mode,created:row.created,expires:row.expires,error:row.error,title:result?.title|| (input.sampleId?'一元一次方程':input.text?.slice(0,30)||'图片题目'),result:result?{...result,video:`/api/media/${row.id}/video.mp4?token=${row.media_token}`,cover:`/api/media/${row.id}/cover.png?token=${row.media_token}`} : null};
+  const capability=input.capability||'math-video',entry=getCapability(capability);
+  const url=name=>`/api/media/${row.id}/${name}?token=${row.media_token}`;
+  return {id:row.id,status:row.status,stage:row.stage,mode:row.mode,capability,created:row.created,expires:row.expires,error:row.error,title:result?.title||input.sourceResult?.title||(input.sampleId?(capability==='math-video'?'一元一次方程':entry.sampleLabel):input.text?.slice(0,30)||'图片题目'),result:result?{...result,...(result.format!=='interactive'&&result.videoReady!==false?{video:url('video.mp4')}:{video:undefined}),...(result.coverReady!==false?{cover:url('cover.png')}:{}),...(result.previewReady?{preview:url('preview.html'),download:url('lesson.html')}:{}),...(result.subtitlesReady?{subtitles:url('subtitles.srt')}:{})}:null};
  }
  get(id,owner){return this.public(this.db.prepare('SELECT * FROM tasks WHERE id=? AND owner=?').get(id,owner));}
  list(owner){return this.db.prepare('SELECT * FROM tasks WHERE owner=? ORDER BY created DESC LIMIT 50').all(owner).map(r=>this.public(r));}
