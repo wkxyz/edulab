@@ -41,6 +41,14 @@ docker compose -f compose.tutor.yml -f compose.tutor.public.yml -f compose.tutor
 
 首次收费接口验证仅提交一题，检查答案、中文发音、视频效果及KIE实际消耗，再决定是否开放给其他用户。设备体验会话不等于正式账号，公开服务的隐私政策和访问控制仍须按实际使用范围配置。
 
+### 使用 MiniMax-M3.1-Flash 解题
+
+用户指定MiniMax后，设置 `AI_PROVIDER=minimax`、`MINIMAX_REGION=cn`（国内平台）或 `global`（国际平台），将对应平台的按量计费密钥写入 `MINIMAX_API_KEY`。模型固定为 `MiniMax-M3.1-Flash`，思考深度默认 `medium`；使用官方 `/v1/chat/completions`，开启 `reasoning_split`，只消费最终讲解内容，求解和复核分别最多8192/4096生成tokens。图片通过Base64直接传给MiniMax，不再上传至KIE文件服务。
+
+配音继续使用既有 `KIE_API_KEY` 与ElevenLabs；两家密钥分开，KIE密钥不会发送至MiniMax。MiniMax密钥未配置时不允许提交真实题。M Plan订阅密钥与按量计费API Key不同，网站接入不依赖购买订阅或自动充值。已有失败任务、预算预留和累计次数必须保留；允许再做一题时显式增加累计上限，不清库、不自动重试。
+
+官方依据：[MiniMax模型接口](https://platform.minimax.cn/docs/api-reference/text-chat-openai)、[官方定价](https://platform.minimax.cn/docs/pricing/overview)。截至2026-10-24，KIE模型市场搜索MiniMax仅列出H3视频模型，因此M3.1-Flash使用MiniMax官方通道。
+
 ### 首题验收的累计上限
 
 配置 `LIVE_TASK_LIMIT=1` 可将整个项目累计受理的真实题限制为1道；统计来自已有SQLite任务，失败、取消、跨设备、跨天及重启均不恢复次数，固定示例不占此次数。到达上限后拒绝新的真实任务，不自动补充额度。`0` 阻止新真实任务；新生成的 `.env` 默认写入0。为兼容旧配置，未指定时为200，已有服务器须明确写入验收上限。

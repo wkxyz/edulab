@@ -3,11 +3,18 @@ import {sampleLesson} from './sample.mjs';
 import {jsonResponse} from './provider-http.mjs';import {uploadQuestion} from './kie.mjs';
 async function chat(config,messages,maxTokens,ctx){
  ctx.guard(true);
+ const minimax=config.provider==='minimax';
+ const parameters=minimax?{max_completion_tokens:maxTokens===2400?8192:4096,reasoning_effort:config.reasoningEffort||'medium',reasoning_split:true}:{max_tokens:maxTokens,response_format:{type:'json_object'}};
  const response=await fetch(config.aiBase.replace(/\/$/,'')+'/chat/completions',{
   method:'POST',headers:{authorization:`Bearer ${config.aiKey}`,'content-type':'application/json'},signal:AbortSignal.any([ctx.signal,AbortSignal.timeout(60000)]),
-  redirect:'error',body:JSON.stringify({model:config.aiModel,messages,max_tokens:maxTokens,stream:false,response_format:{type:'json_object'}})
+  redirect:'error',body:JSON.stringify({model:config.aiModel,messages,stream:false,...parameters})
  });
  const data=await jsonResponse(response);ctx.guard();
+ if(minimax){
+  if(data.base_resp?.status_code!==undefined&&data.base_resp.status_code!==0)fail('PROVIDER_FAILED',502);
+  if(data.model!==config.aiModel)fail('PROVIDER_FAILED',502);
+  if(data.choices?.[0]?.finish_reason!=='stop')fail('INVALID_LESSON',502);
+ }
  const content=data.choices?.[0]?.message?.content;if(typeof content!=='string')fail('PROVIDER_FAILED',502);
  try{return JSON.parse(content);}catch{fail('INVALID_LESSON',502);}
 }

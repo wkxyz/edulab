@@ -4,10 +4,17 @@ export function configFromEnv(env=process.env){
  const c={dataDir:path.resolve(env.TUTOR_DATA_DIR||'../../.tutor-data'),host:env.HOST||'127.0.0.1',port:int('PORT',8788,65535),liveEnabled:env.LIVE_ENABLED==='true',liveTaskLimit:int('LIVE_TASK_LIMIT',200,200),dayBudgetCents:int('DAY_BUDGET_CENTS',0,10000),jobBudgetCents:int('JOB_BUDGET_CENTS',0,1000),aiBase:env.AI_BASE_URL||'',aiKey:env.AI_API_KEY||'',aiModel:env.AI_MODEL||'',ttsKey:env.GLM_API_KEY||'',ttsVoice:env.GLM_VOICE||'chuichui'};
  if(c.aiBase&&!/^https:\/\/[^@?#]+$/.test(c.aiBase))throw new Error('AI_BASE_URL must use HTTPS');
  c.provider=env.AI_PROVIDER||'kie';
- if(!['kie','openai-compatible'].includes(c.provider))throw new Error('Invalid AI_PROVIDER');
- if(c.provider==='kie'){
-  const model=env.KIE_CHAT_MODEL||'gemini-3-pro';if(!['gemini-3-pro','gemini-2.5-pro'].includes(model))throw new Error('Unsupported KIE_CHAT_MODEL');
-  c.aiBase=`https://api.kie.ai/${model}/v1`;c.aiModel=model;c.aiKey=env.KIE_API_KEY||'';c.ttsKey=c.aiKey;c.ttsProvider='kie';
+ if(!['kie','minimax','openai-compatible'].includes(c.provider))throw new Error('Invalid AI_PROVIDER');
+ if(c.provider==='kie'||c.provider==='minimax'){
+  if(c.provider==='kie'){
+   const model=env.KIE_CHAT_MODEL||'gemini-3-pro';if(!['gemini-3-pro','gemini-2.5-pro'].includes(model))throw new Error('Unsupported KIE_CHAT_MODEL');
+   c.aiBase=`https://api.kie.ai/${model}/v1`;c.aiModel=model;c.aiKey=env.KIE_API_KEY||'';
+  }else{
+   const region=env.MINIMAX_REGION||'cn';if(!['cn','global'].includes(region))throw new Error('Invalid MINIMAX_REGION');
+   c.aiBase=region==='cn'?'https://api.minimax.cn/v1':'https://api.minimax.io/v1';c.aiModel='MiniMax-M3.1-Flash';c.aiKey=env.MINIMAX_API_KEY||'';
+   c.reasoningEffort=env.MINIMAX_REASONING_EFFORT||'medium';if(!['low','medium','high','xhigh','max'].includes(c.reasoningEffort))throw new Error('Invalid MINIMAX_REASONING_EFFORT');
+  }
+  c.ttsKey=env.KIE_API_KEY||'';c.ttsProvider='kie';
   c.ttsModel=env.KIE_TTS_MODEL||'elevenlabs/text-to-speech-multilingual-v2';
   if(!['elevenlabs/text-to-speech-multilingual-v2','elevenlabs/text-to-speech-turbo-2-5'].includes(c.ttsModel))throw new Error('Unsupported KIE_TTS_MODEL');
   c.ttsVoice=env.KIE_TTS_VOICE||'EkK5I93UQWFDigLMpZcX';

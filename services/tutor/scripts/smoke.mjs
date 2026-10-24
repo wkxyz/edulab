@@ -69,4 +69,5 @@ try{
  // Public sample UI only, never user uploads or credentials. Kept in the existing job log to avoid artifact storage.
  for(const name of ['mobile','crop','processing','result','desktop'])console.log('QA_IMAGE_'+name.toUpperCase()+':'+fs.readFileSync(path.join(dir,name+'.png')).toString('base64'));
  await verifyKieFlow(dir,task.id);
+ await verifyKieFlow(dir,task.id,{provider:'minimax'});
 }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
