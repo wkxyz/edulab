@@ -2,7 +2,7 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {openStore} from './store.mjs';
 import {validateInput,TutorError,fail} from './validation.mjs';
 
-const knownErrors=new Set(['STOPPED','CANCELLED','EXPIRED','TIMEOUT','NOT_CONFIGURED','REVIEW_FAILED','INVALID_LESSON','UNSUPPORTED_ANIMATION','LESSON_TOO_LONG','INVALID_FORMULA','RENDER_FAILED','PROVIDER_FAILED','CALL_LIMIT']);
+const knownErrors=new Set(['STOPPED','CANCELLED','EXPIRED','TIMEOUT','NOT_CONFIGURED','REVIEW_FAILED','INVALID_LESSON','UNSUPPORTED_ANIMATION','LESSON_TOO_LONG','INVALID_FORMULA','RENDER_FAILED','PROVIDER_FAILED','PROVIDER_TIMEOUT','CALL_LIMIT']);
 export class Tutor {
  constructor(options={}){
   this.options={dailyLimit:20,ownerLimit:5,totalLimit:200,liveTaskLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,...options};
@@ -10,6 +10,7 @@ export class Tutor {
   this.runner=options.runner||(async()=>fail('NOT_CONFIGURED',503));
  }
  isStopped(){return this.db.prepare("SELECT value FROM settings WHERE key='stopped'").get().value==='1';}
+ liveLimitReached(){return this.db.prepare("SELECT count(*) n FROM tasks WHERE mode='live'").get().n>=this.options.liveTaskLimit;}
  setStopped(value){this.db.prepare("UPDATE settings SET value=? WHERE key='stopped'").run(value?'1':'0');if(value){for(const controller of this.running.values())controller.abort();}else if(this.options.autoRun)this.wake();}
  create(raw,owner,idem){
   if(!/^[a-zA-Z0-9_-]{1,128}$/.test(owner||''))fail('INVALID_SESSION',401);
@@ -25,7 +26,7 @@ export class Tutor {
   this.db.exec('BEGIN IMMEDIATE');
   try{
    if(this.isStopped())fail('STOPPED',503);
-   if(mode==='live'&&this.db.prepare("SELECT count(*) n FROM tasks WHERE mode='live'").get().n>=o.liveTaskLimit)fail('LIVE_LIMIT',429);
+   if(mode==='live'&&this.liveLimitReached())fail('LIVE_LIMIT',429);
    if(this.db.prepare('SELECT count(*) n FROM tasks').get().n>=o.totalLimit)fail('TOTAL_LIMIT',429);
    if(this.db.prepare("SELECT count(*) n FROM tasks WHERE status IN ('queued','running')").get().n>=o.queueLimit)fail('QUEUE_FULL',429);
    const usage=this.db.prepare('SELECT * FROM daily WHERE day=?').get(day);

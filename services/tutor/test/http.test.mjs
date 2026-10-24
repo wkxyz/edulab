@@ -26,3 +26,13 @@ test('HTTP session, real configuration failure, owner boundary and cancellation'
  assert.equal((await req('/api/health')).data.stopped,false);
  }finally{await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('public health stops advertising paid generation after the cumulative trial is used',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-quota-health-'));
+ const {server,tutor}=await mod.startServer({dataDir:dir,port:0,autoRun:false,liveEnabled:true,configured:true,liveTaskLimit:1,dayBudgetCents:1000,jobBudgetCents:1000});
+ const health=async()=>fetch(`http://127.0.0.1:${server.address().port}/api/health`).then(r=>r.json());
+ try{
+  assert.equal((await health()).liveEnabled,true);
+  tutor.create({text:'解方程三乘以未知数减七等于八'},'trial-owner','one');
+  const h=await health();assert.equal(h.liveEnabled,false);assert.equal(h.liveLimitReached,true);assert.equal(h.stopped,false);assert.equal(h.sampleAvailable,true);
+ }finally{await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

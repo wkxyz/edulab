@@ -13,7 +13,7 @@ const icon = name => `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true
   check:'<path d="m5 12 4 4L19 6"/>', arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',
   book:'<path d="M12 5v15M3 4c4-1 7 0 9 2 2-2 5-3 9-2v15c-4-1-7 0-9 2-2-2-5-3-9-2z"/>',
 }[name]||''}</svg>`;
-const errors={LIVE_LIMIT:'真实解题体验额度已用完，请等待服务方开放更多额度。',NOT_CONFIGURED:'真实解题服务尚未开通，可先体验示例讲解。',STOPPED:'服务已暂停，请稍后再试。',OWNER_LIMIT:'今天的体验次数已用完。',PROJECT_LIMIT:'今天的生成额度已用完。',TOTAL_LIMIT:'体验服务容量已满。',QUEUE_FULL:'当前排队较多，请稍后再试。',BUDGET_EXHAUSTED:'今天的服务额度已用完。',INVALID_IMAGE:'图片格式不正确，请重新选择。',REVIEW_FAILED:'解答未通过复核，请重新拍摄完整题目。',INVALID_LESSON:'暂时无法可靠讲解这道题，请重新拍摄。',CANCELLED:'任务已取消。',TIMEOUT:'本次生成超时，请稍后重试。',EXPIRED:'任务已过期。',INTERRUPTED:'服务重启，本次任务已停止，可重新提交。'};
+const errors={PROVIDER_TIMEOUT:'解题或配音服务响应超时，本次任务已结束，系统不会自动重试。',PROVIDER_FAILED:'解题或配音服务暂时不可用，本次任务已结束，系统不会自动重试。',LIVE_LIMIT:'真实解题体验额度已用完，请等待服务方开放更多额度。',NOT_CONFIGURED:'真实解题服务尚未开通，可先体验示例讲解。',STOPPED:'服务已暂停，请稍后再试。',OWNER_LIMIT:'今天的体验次数已用完。',PROJECT_LIMIT:'今天的生成额度已用完。',TOTAL_LIMIT:'体验服务容量已满。',QUEUE_FULL:'当前排队较多，请稍后再试。',BUDGET_EXHAUSTED:'今天的服务额度已用完。',INVALID_IMAGE:'图片格式不正确，请重新选择。',REVIEW_FAILED:'解答未通过复核，请重新拍摄完整题目。',INVALID_LESSON:'暂时无法可靠讲解这道题，请重新拍摄。',CANCELLED:'任务已取消。',TIMEOUT:'本次生成超时，请稍后重试。',EXPIRED:'任务已过期。',INTERRUPTED:'服务重启，本次任务已停止，可重新提交。'};
 const api=createClient({message:code=>errors[code]||'暂时无法完成，请稍后重试。'});
 
 function showError(error){
@@ -40,6 +40,7 @@ function healthText(){
   if(healthError)return {title:'暂时无法连接讲解服务',detail:'请检查网络后重试。已选图片会保留在当前页面。',kind:'offline'};
   if(!health)return {title:'正在连接讲解服务',detail:'可先选好一道清晰、完整的题目。',kind:'connecting'};
   if(health.stopped)return {title:'服务暂时暂停',detail:'请稍后再试，视频记录会保留。',kind:'offline'};
+  if(health.liveLimitReached)return {title:'真实解题体验额度已用完',detail:'可继续体验固定示例，等待服务方开放更多额度。',kind:'sample'};
   if(!health.liveEnabled)return {title:'示例体验中',detail:'上传图片可预览、裁剪和旋转。真实解题暂未开放，可以先体验示例视频。',kind:'sample'};
   return {title:'讲解服务已开启',detail:'支持 PNG、JPEG、WebP，每次一道题，图片不超过 4MB。',kind:'live'};
 }
@@ -82,7 +83,7 @@ async function acceptFile(file){
 document.addEventListener('paste',event=>{if(current!=='capture'||document.querySelector('dialog[open]')||busy||event.target.closest?.('input,textarea,[contenteditable="true"]'))return;const item=[...(event.clipboardData?.items||[])].find(item=>item.type.startsWith('image/'));if(item){event.preventDefault();acceptFile(item.getAsFile());}});
 async function start(data){
   if(busy)return;if(!navigator.onLine)return showError(new Error('网络已断开，请连接后重试。'));
-  if(!data.sampleId&&health&&!health.liveEnabled)return showError(new Error(errors[health.stopped?'STOPPED':'NOT_CONFIGURED']));
+  if(!data.sampleId&&health&&!health.liveEnabled)return showError(new Error(errors[health.stopped?'STOPPED':health.liveLimitReached?'LIVE_LIMIT':'NOT_CONFIGURED']));
   busy=true;const version=epoch,active=document.querySelector(data.sampleId?'#sample':'#submit'),label=active?.innerHTML;
   app.querySelectorAll('button').forEach(button=>button.disabled=true);if(active)active.textContent='正在提交…';
   try{const task=await api('/api/tasks',{method:'POST',data,key:createKey});createKey=crypto.randomUUID();if(epoch===version)await showTask(task.id);}
@@ -130,7 +131,7 @@ async function loadTask(){
 function renderTask(task){
   clearInterval(clock);if(task.result)return renderResult(task);
   const terminal=['failed','cancelled'].includes(task.status),phase=taskPhase(task);
-  app.innerHTML=`<button class="back" id="back" aria-label="返回我的视频">返回我的视频</button><div class="task-grid"><section class="panel progress-panel"><div class="section-heading"><span class="eyebrow">${task.mode==='sample'?'固定示例讲解':'你的题目'}</span><span class="badge neutral" id="elapsed"></span></div><h1>${esc(task.title)}</h1>${terminal?`<div class="task-notice"><h2>${task.status==='cancelled'?'本次生成已取消':'这次没有完成'}</h2><p class="error" role="alert">${esc(errors[task.error]||'生成失败，请重新提交。')}</p><p class="muted">可以检查题目是否完整，再重新试一次。</p><button class="btn" id="again">重新拍题</button></div>`:
+  app.innerHTML=`<button class="back" id="back" aria-label="返回我的视频">返回我的视频</button><div class="task-grid"><section class="panel progress-panel"><div class="section-heading"><span class="eyebrow">${task.mode==='sample'?'固定示例讲解':'你的题目'}</span><span class="badge neutral" id="elapsed"></span></div><h1>${esc(task.title)}</h1>${terminal?`<div class="task-notice"><h2>${task.status==='cancelled'?'本次生成已取消':'这次没有完成'}</h2><p class="error" role="alert">${esc(errors[task.error]||'本次生成未完成，请返回拍题页查看服务状态。')}</p><p class="muted">本次任务已结束，不会自动再次生成。可返回拍题页查看服务状态。</p><button class="btn" id="again">重新拍题</button></div>`:
     `<div class="current-phase" role="status"><span class="spinner"></span><div><h2>${phase.label}</h2><p class="muted">${phase.detail}</p></div></div><ol class="steps" aria-label="讲解生成进度">${['识别题目','解题与复核','生成配音','制作视频'].map((label,index)=>`<li class="step ${index<phase.index?'done':index===phase.index?'active':''}"><span class="dot">${index<phase.index?icon('check'):index+1}</span><div><strong>${label}</strong><small>${index<phase.index?'已完成':index===phase.index?(phase.key==='queued'?'等待开始':'正在进行'):'等待中'}</small></div></li>`).join('')}</ol><div class="progress-actions"><button class="btn" id="history">查看我的视频</button><button class="text-button" id="cancel">取消本次生成</button></div>`}</section><aside class="panel waiting-panel"><span class="eyebrow">不必一直等在这里</span><h2>稍后回来，继续看懂这道题</h2><p class="muted">可以离开页面，在“视频”中查看进度。关闭浏览器不会取消服务器上的任务。</p><div class="note">${task.mode==='sample'?'这是固定方程示例，配音和视频均由服务器生成。':'生成时间取决于题目和讲解长度，请耐心等待。'}</div></aside></div>`;
   document.querySelector('#back').onclick=()=>nav('videos');
   if(terminal)document.querySelector('#again').onclick=()=>nav('capture');

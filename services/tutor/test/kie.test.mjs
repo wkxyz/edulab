@@ -48,6 +48,13 @@ test('KIE never downloads local, redirected or unexpected result URLs',async()=>
 test('KIE chat rejects an application error even when HTTP and choices look successful',async()=>{
  let calls=0;await fixture(async()=>{calls++;return Response.json({code:500,choices:[{message:{content:JSON.stringify(sampleLesson)}}]});},()=>assert.rejects(()=>solve({text:'解方程',style:'chalk'},config(),context()),/PROVIDER_FAILED/));assert.equal(calls,1);
 });
+test('KIE upstream timeouts keep a safe timeout code and never resubmit',async()=>{
+ for(const response of [()=>Response.json({code:524,msg:'2 times retry fail'}),()=>new Response('upstream private details',{status:524})]){
+  let calls=0;
+  await fixture(async()=>{calls++;return response();},()=>assert.rejects(()=>solve({text:'解方程',style:'chalk'},config(),context()),error=>error.code==='PROVIDER_TIMEOUT'&&error.message==='PROVIDER_TIMEOUT'));
+  assert.equal(calls,1);
+ }
+});
 test('KIE audio download rejects redirect and over-limit responses',async()=>{
  for(const response of [()=>new Response(null,{status:302,headers:{location:'http://127.0.0.1/private'}}),()=>new Response(Buffer.alloc(12*1024*1024+1))]){
   let calls=0;await fixture(async(url,opts)=>{calls++;if(calls===1)return Response.json({code:200,data:{taskId:'task_test'}});if(calls===2)return Response.json({code:200,data:{state:'success',resultJson:JSON.stringify({resultUrls:['https://tempfile.aiquickdraw.com/audio.mp3']})}});assert.equal(opts.redirect,'error');assert.equal(opts.headers?.authorization,undefined);return response();},()=>assert.rejects(()=>kieSpeech('测试','/unused',config(),context(),{wait:async()=>{}}),/PROVIDER_FAILED/));assert.equal(calls,3);
