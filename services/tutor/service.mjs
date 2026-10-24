@@ -84,7 +84,7 @@ export class Tutor {
   }catch(e){
    const current=this.db.prepare('SELECT status FROM tasks WHERE id=?').get(id);
    if(current?.status==='running'){
-    const code=knownErrors.has(e.code)?e.code:controller.signal.aborted?'CANCELLED':'GENERATION_FAILED';
+    const code=controller.signal.reason?.code==='TIMEOUT'?'TIMEOUT':knownErrors.has(e.code)?e.code:controller.signal.aborted?'CANCELLED':'GENERATION_FAILED';
     this.db.prepare('UPDATE tasks SET status=?,stage=?,error=? WHERE id=?').run(code==='CANCELLED'?'cancelled':'failed',code==='CANCELLED'?'cancelled':'failed',code,id);
    }
   }finally{clearTimeout(timer);this.running.delete(id);if(this.closed)this.db.close();else if(this.options.autoRun&&!this.draining)this.wake();}

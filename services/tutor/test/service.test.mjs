@@ -90,3 +90,7 @@ test('status reads have a persistent cap independent of the fourteen paid calls'
  let reads=0;const x=make({liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:10,runner:async(task,ctx)=>{for(let n=0;n<172;n++){ctx.guard('read');reads++;}}});
  try{const a=x.tutor.create({text:'求二加二'},'a','1');await x.tutor.run(a.id);assert.equal(reads,171);assert.equal(x.tutor.get(a.id,'a').error,'CALL_LIMIT');const row=x.tutor.db.prepare('SELECT calls,requests FROM tasks WHERE id=?').get(a.id);assert.equal(row.calls,0);assert.equal(row.requests,171);x.tutor.close();x.tutor=new mod.Tutor({dataDir:x.dir,autoRun:false});assert.equal(x.tutor.db.prepare('SELECT requests FROM tasks WHERE id=?').get(a.id).requests,171);}finally{x.done();}
 });
+test('deadline during asynchronous polling is a timeout rather than a user cancellation',async()=>{
+ const keepAlive=setTimeout(()=>{},1000);const x=make({maxMs:100,runner:async(task,ctx)=>new Promise((resolve,reject)=>{ctx.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});})});
+ try{const a=x.tutor.create(sample,'a','1');await x.tutor.run(a.id);assert.equal(x.tutor.get(a.id,'a').error,'TIMEOUT');assert.equal(x.tutor.get(a.id,'a').status,'failed');}finally{clearTimeout(keepAlive);x.done();}
+});
