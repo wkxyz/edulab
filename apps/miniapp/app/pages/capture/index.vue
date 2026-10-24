@@ -1,0 +1,10 @@
+<template><view class="page"><view class="title">拍一道题，听懂每一步</view><view class="sub">拍照或上传题目，生成视频讲解</view><view class="upload" @tap="pick"><image v-if="photo" :src="photo.preview" mode="aspectFit" class="photo"/><view v-else><view class="camera">◎</view><view class="row-title">拍照 / 选择图片</view><view class="muted small">一次上传一道题</view></view></view><view v-if="photo"><view class="muted small">请确认整道题清楚、完整</view><button class="button" :disabled="busy" @tap="submit">{{busy?'正在提交…':'生成视频讲解'}}</button></view><view v-if="error" class="error">{{error}}</view><button class="button outline" :disabled="busy" @tap="sample">体验示例讲解</button><view class="row sample" @tap="sample"><view class="muted small">一元一次方程 · 固定示例</view><view class="formula">2x + 3 = 11</view></view><view class="footer">AI 讲解仅供学习参考</view></view></template>
+<script setup>
+import {ref} from 'vue';import {chooseQuestion,createTask,newKey} from '../../lib/api';
+const photo=ref(null),busy=ref(false),error=ref('');let key=newKey();
+async function pick(){try{const p=await chooseQuestion();if(p){photo.value=p;key=newKey();error.value='';}}catch(e){error.value=e.message;}}
+async function start(data){if(busy.value)return;busy.value=true;error.value='';try{const task=await createTask(data,key);key=newKey();uni.navigateTo({url:'/pages/task/index?id='+task.id});}catch(e){error.value=e.message;}finally{busy.value=false;}}
+const submit=()=>photo.value&&start({image:photo.value.image,style:'chalk'});
+const sample=()=>start({sampleId:'equation',style:'chalk'});
+</script>
+<style scoped>.upload{border:2rpx dashed #c9d7cf;border-radius:18rpx;background:#fafcfb;text-align:center;min-height:420rpx;display:flex;align-items:center;justify-content:center;margin:68rpx 0 48rpx;padding:30rpx}.camera{font-size:100rpx;line-height:1.2;color:#17684b;margin-bottom:22rpx}.photo{height:350rpx;width:100%}.formula{font-family:Georgia,serif;font-style:italic;font-size:44rpx}.sample{border:1rpx solid #e8eeea;border-radius:14rpx;padding:24rpx 30rpx;margin-top:36rpx}</style>

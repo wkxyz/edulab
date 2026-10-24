@@ -1,0 +1,36 @@
+name: Tutor checks
+on:
+  push:
+    branches: [codex/ai-video-miniprogram]
+    paths: ['services/tutor/**', 'apps/**', '.github/workflows/tutor-check.yml']
+  pull_request:
+    paths: ['services/tutor/**', 'apps/**', '.github/workflows/tutor-check.yml']
+permissions:
+  contents: read
+concurrency:
+  group: tutor-check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Backend behavior and quota checks
+        run: npm test --prefix services/tutor
+      - name: Install uni-app build tools
+        working-directory: apps/miniapp
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Prepare pinned uni-starter
+        working-directory: apps/miniapp
+        run: npm run prepare:starter
+      - name: Build H5 and WeChat mini program
+        working-directory: apps/miniapp
+        run: |
+          npm run build:h5
+          npm run build:mp-weixin
+          test -s dist/build/mp-weixin/app.json
+          test -s dist/build/h5/index.html
