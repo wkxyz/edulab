@@ -19,7 +19,7 @@ try{
  await page.getByRole('button',{name:'取消本次生成',exact:true}).waitFor();
  await page.screenshot({path:path.join(dir,'processing.png')});
  await page.getByRole('button',{name:'查看我的视频',exact:true}).click();
- await page.getByRole('button',{name:/一元一次方程/}).click();
+ await page.getByRole('button',{name:/一元一次方程/}).first().click();
  await page.locator('video').waitFor({timeout:240000});
  assert.match(new URL(page.url()).hash,/^#task\/[a-f0-9-]{36}$/);
  await page.reload();await page.locator('video').waitFor();
@@ -30,6 +30,8 @@ try{
  await page.locator('video').evaluate(v=>new Promise(resolve=>{v.pause();v.addEventListener('seeked',()=>resolve(),{once:true});v.currentTime=Math.max(0,v.duration-3);}));
  await page.screenshot({path:path.join(dir,'result.png')});
  await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:'拍题',exact:true}).click();await page.screenshot({path:path.join(dir,'desktop.png')});
+ await page.getByRole('button',{name:'我的',exact:true}).click();await page.getByRole('heading',{name:'我的',exact:true}).waitFor();
+ await page.goBack();await page.getByRole('heading',{name:'拍一道题，听懂每一步'}).waitFor();
  assert.deepEqual(issues,[]);
  const token=await page.evaluate(()=>localStorage.getItem('tutor-token'));const tasks=await fetch(base+'/api/tasks',{headers:{authorization:'Bearer '+token}}).then(r=>r.json());const task=tasks.tasks.find(t=>t.status==='completed');
  const range=await fetch(base+task.result.video,{headers:{Range:'bytes=0-1023'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,1024);
