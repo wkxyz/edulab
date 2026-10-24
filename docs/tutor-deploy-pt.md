@@ -28,7 +28,7 @@ docker compose -f compose.tutor.yml -f compose.tutor.public.yml up -d
 ## 验收与启用
 
 ```bash
-curl --fail http://127.0.0.1:8788/api/health
+curl --fail --retry 20 --retry-delay 1 --retry-all-errors --retry-max-time 30 --max-time 3 http://127.0.0.1:8788/api/health
 curl --fail https://pt.yokily.com/api/health
 docker compose -f compose.tutor.yml -f compose.tutor.public.yml exec tutor node control.mjs status
 ```
