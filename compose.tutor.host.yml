@@ -1,0 +1,6 @@
+# Optional override verified on the initial 2-core / 2-GB host.
+# Include after compose.tutor.yml and compose.tutor.public.yml.
+services:
+  tutor:
+    mem_limit: 1200m
+    cpus: 1.5
