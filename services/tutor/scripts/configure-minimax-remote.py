@@ -5,6 +5,7 @@ Run on the Mac where the secure input windows saved the two credentials.
 Credentials travel only over SSH stdin, never in arguments, output, or Git.
 """
 import base64
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -252,26 +253,61 @@ def remote_main():
     return 0 if result['status'] == 'deployed_live_off' else 1
 
 
-def transmit(source, keys):
+@contextmanager
+def ssh_session():
+    if not sys.stdin.isatty():
+        raise SafeFailure('USER_TERMINAL_REQUIRED')
+    directory = Path(tempfile.mkdtemp(prefix='edulab-ssh-', dir='/tmp'))
+    control = directory / 'connection'
+    started = False
+    try:
+        print('先完成一次 SSH 登录：如提示主机指纹，请核对后确认；如提示登录密码，输入服务器密码，输入时不显示字符。不要输入 MiniMax Key。', flush=True)
+        args = ['ssh', '-M', '-S', str(control), '-o', 'ControlPersist=60',
+                '-o', 'BatchMode=no', '-o', 'StrictHostKeyChecking=ask',
+                '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', '-fN', HOST]
+        result = subprocess.run(args, timeout=120)
+        if result.returncode:
+            raise SafeFailure('SSH_LOGIN_FAILED')
+        started = True
+        yield control
+    finally:
+        if started or control.exists():
+            try:
+                subprocess.run(['ssh', '-S', str(control), '-o', 'BatchMode=yes', '-O', 'exit', HOST],
+                               capture_output=True, text=True, timeout=10)
+            except Exception:
+                pass
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def transmit(source, keys, control=None):
     valid_keys(keys)
     encoded = base64.b64encode(source.encode()).decode()
     remote = 'python3 -c ' + shlex.quote('import base64;exec(compile(base64.b64decode(' + repr(encoded) + "),'<edulab-deploy>','exec'))") + ' --remote'
     args = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-            '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1', HOST, remote]
+            '-o', 'ConnectTimeout=10', '-o', 'ConnectionAttempts=1']
+    if control is not None:
+        args += ['-S', str(control), '-o', 'ControlMaster=no']
+    args += [HOST, remote]
     return subprocess.run(args, input=json.dumps(keys), capture_output=True, text=True, timeout=900)
 
 
 def local_main():
+    stage = 'credentials'
     try:
         loaded = {kind: load_key(meta) for kind, meta in METADATA.items()}
         keys = {kind: pair[1] for kind, pair in loaded.items()}
         valid_keys(keys)
         print('正在安全连接服务器并部署，通常需要几分钟。密钥不会显示；真实生成保持关闭。', flush=True)
-        completed = transmit(Path(__file__).read_text(), keys)
+        stage = 'ssh_auth'
+        with ssh_session() as control:
+            stage = 'ssh_deploy'
+            completed = transmit(Path(__file__).read_text(), keys, control)
         if not completed.stdout.strip():
             result = {'status': 'failed', 'stage': 'ssh', 'error': 'SSH_CONNECTION_FAILED', 'paidGenerationCalls': 0}
         else:
             result = json.loads(completed.stdout)
+        result['recordedAt'] = time.time()
         atomic_write(RECEIPT, (json.dumps(result, ensure_ascii=False) + '\n').encode())
         if completed.returncode == 0 and result.get('status') == 'deployed_live_off' and result.get('credentialsInstalled') is True and result.get('limitsPreserved') is True:
             for path, _ in loaded.values():
@@ -285,7 +321,13 @@ def local_main():
         print('本机密钥已保留。请回到聊天回复「未完成」，无需重新填写 Key。')
         return 1
     except Exception as error:
-        print('未执行或未确认部署：' + (str(error) if isinstance(error, SafeFailure) else type(error).__name__))
+        code = str(error) if isinstance(error, SafeFailure) else type(error).__name__
+        try:
+            atomic_write(RECEIPT, (json.dumps({'status': 'failed', 'stage': stage, 'error': code,
+                                             'paidGenerationCalls': 0, 'recordedAt': time.time()}) + '\n').encode())
+        except Exception:
+            pass
+        print('未执行或未确认部署：' + code)
         print('请回到聊天说明结果；不要粘贴密钥。')
         return 1
 

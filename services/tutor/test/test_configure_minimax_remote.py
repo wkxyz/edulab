@@ -79,6 +79,43 @@ class RemoteConfigurationTests(unittest.TestCase):
             for key in KEYS.values():
                 self.assertNotIn(key, ' '.join(command))
 
+    def test_shared_connection_keeps_strict_checks_for_secret_transfer(self):
+        with patch.object(module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run:
+            module.transmit('print("safe source")', KEYS, Path('/tmp/private-test/connection'))
+            command = run.call_args[0][0]
+            self.assertIn('/tmp/private-test/connection', command)
+            self.assertIn('StrictHostKeyChecking=yes', command)
+            self.assertIn('ControlMaster=no', command)
+            for key in KEYS.values():
+                self.assertNotIn(key, ' '.join(command))
+
+    def test_login_requires_a_user_terminal_before_any_connection(self):
+        with patch.object(module.sys, 'stdin', types.SimpleNamespace(isatty=lambda: False)), \
+             patch.object(module.subprocess, 'run') as run:
+            with self.assertRaisesRegex(module.SafeFailure, 'USER_TERMINAL_REQUIRED'):
+                with module.ssh_session():
+                    self.fail('must not connect')
+            run.assert_not_called()
+
+    def test_interactive_connection_is_closed_on_deployment_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory) / 'connection-directory'
+            private.mkdir(mode=0o700)
+            with patch.object(module.sys, 'stdin', types.SimpleNamespace(isatty=lambda: True)), \
+                 patch.object(module.tempfile, 'mkdtemp', return_value=str(private)), \
+                 patch.object(module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, 'simulated failure'):
+                    with module.ssh_session() as control:
+                        self.assertEqual(control.parent, private)
+                        raise RuntimeError('simulated failure')
+                first = run.call_args_list[0]
+                self.assertIn('StrictHostKeyChecking=ask', first.args[0])
+                self.assertNotIn('input', first.kwargs)
+                self.assertNotIn('capture_output', first.kwargs)
+                self.assertIn('exit', run.call_args_list[-1].args[0])
+            self.assertFalse(private.exists())
+
     def test_atomic_write_replaces_a_symlink_without_following_it(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
