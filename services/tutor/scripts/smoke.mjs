@@ -70,4 +70,5 @@ try{
  for(const name of ['mobile','crop','processing','result','desktop'])console.log('QA_IMAGE_'+name.toUpperCase()+':'+fs.readFileSync(path.join(dir,name+'.png')).toString('base64'));
  await verifyKieFlow(dir,task.id);
  await verifyKieFlow(dir,task.id,{provider:'minimax'});
+ await verifyKieFlow(dir,task.id,{provider:'minimax',acceptance:true});
 }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
