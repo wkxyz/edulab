@@ -16,7 +16,7 @@ export function createRunner(config){return async(task,ctx)=>{
    if(task.mode==='sample')await narrateOffline(text,file,ctx);else await glmSpeech(text,file,config,ctx);
    const seconds=await duration(file,ctx.signal);if(!Number.isFinite(seconds)||seconds<=0||seconds>45)throw new Error('BAD_AUDIO');clips.push({file,duration:seconds,words:[]});
   }
-  ctx.stage('rendering');const rendered=await renderLesson(lesson,clips,out,ctx);
+  ctx.stage('rendering');const rendered=await renderLesson(lesson,clips,out,ctx,config.renderOptions);
   return {title:lesson.meta.title,problem:lesson.meta.problem,answer:lesson.meta.answer,steps:lesson.scenes.map(s=>({title:s.goal,description:s.beats.map(b=>b.say).join('')})),...rendered,disclosure:task.mode==='sample'?'固定示例，离线配音':'AI 生成讲解，仅供学习参考'};
  }catch(e){fs.rmSync(out,{recursive:true,force:true});throw e;}
 };}

@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Backend behavior and quota checks
@@ -34,3 +34,12 @@ jobs:
           npm run build:mp-weixin
           test -s dist/build/mp-weixin/app.json
           test -s dist/build/h5/index.html
+      - name: Install offline video verification tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg espeak-ng fonts-noto-cjk
+          npm install --prefix services/tutor --ignore-scripts --no-audit --no-fund
+          cd services/tutor
+          npx playwright install --with-deps chromium
+      - name: Generate and play a narrated sample without paid APIs
+        run: node --disable-warning=ExperimentalWarning services/tutor/scripts/smoke.mjs

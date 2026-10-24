@@ -14,7 +14,9 @@ export function runProcess(command,args,{signal,cwd,maxBytes=32*1024*1024}={}){
 }
 export async function duration(file,signal){return Number((await runProcess(process.env.FFPROBE||'ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',file],{signal})).toString().trim());}
 export async function narrateOffline(text,file,ctx){
- ctx.guard();if(process.platform!=='darwin')fail('NOT_CONFIGURED');
+ ctx.guard();
+ if(process.platform==='linux'){await runProcess('espeak-ng',['-v','cmn','-s','190','-w',file,text],{signal:ctx.signal});ctx.guard();return;}
+ if(process.platform!=='darwin')fail('NOT_CONFIGURED');
  const aiff=file+'.aiff';await runProcess('say',['-v','Tingting','-r','210','-o',aiff,text],{signal:ctx.signal});
  await runProcess(process.env.FFMPEG||'ffmpeg',['-v','error','-y','-i',aiff,'-ar','24000','-ac','1',file],{signal:ctx.signal});fs.rmSync(aiff);ctx.guard();
 }
@@ -28,15 +30,16 @@ export async function renderLesson(lesson,clips,outDir,ctx,{fps=15,scale=1}={}){
  fs.writeFileSync(path.join(outDir,'audio.wav'),Buffer.concat([header,Buffer.from(pcm.buffer)]));
  let html=makePage(timeline);
  try{const dist=path.dirname(require.resolve('katex/dist/katex.min.js'));html=html.replaceAll(/file:\/\/[^"\s]*\/node_modules\/katex\/dist\//g,pathToFileURL(dist+'/').href);}catch{if(ctx.live)fail('RENDER_FAILED');}
- html=html.replace('</head>','<style>body,.stage,.ln,.ct{font-family:"PingFang SC","Microsoft YaHei",sans-serif!important}</style></head>');
+ html=html.replace(/<link rel="stylesheet" href="(file:[^"]+)"[^>]*>/g,(tag,url)=>fs.existsSync(fileURLToPath(url))?tag:'');
+ html=html.replace('</head>','<style>body,.stage,.ln,.ct{font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif!important}</style></head>');
  fs.writeFileSync(path.join(outDir,'preview.html'),html);fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));fs.writeFileSync(path.join(outDir,'subtitles.srt'),toSrt(timeline.captions));
  const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
  const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-frames-'));
  try{
   const page=await browser.newPage({viewport:{width:1280,height:720},deviceScaleFactor:scale});
-  await page.goto(pathToFileURL(path.join(outDir,'preview.html')).href+'?render=1');
-  await page.waitForFunction(()=>!!globalThis.SV?.seek);await page.evaluate(()=>document.fonts.ready);
+  await page.goto(pathToFileURL(path.join(outDir,'preview.html')).href+'?mode=render');
+  await page.waitForFunction(()=>!!globalThis.SV?.state());await page.evaluate(()=>SV.state().ready);
   const n=Math.ceil(timeline.duration*fps);
   for(let i=0;i<n;i++){ctx.guard();await page.evaluate(t=>SV.seek(t),i/fps);await page.screenshot({path:path.join(tmp,`${String(i).padStart(5,'0')}.jpg`),type:'jpeg',quality:86});}
   ctx.guard();await page.evaluate(t=>SV.seek(t),timeline.duration-1);await page.screenshot({path:path.join(outDir,'cover.png')});
