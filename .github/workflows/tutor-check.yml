@@ -2,9 +2,9 @@ name: Tutor checks
 on:
   push:
     branches: [codex/ai-video-website]
-    paths: ['services/tutor/**', 'apps/**', '.github/workflows/tutor-check.yml', 'compose.tutor.yml', '.dockerignore']
+    paths: ['services/tutor/**', 'apps/**', 'deploy/tutor/**', '.github/workflows/tutor-check.yml', 'compose.tutor*.yml', '.dockerignore']
   pull_request:
-    paths: ['services/tutor/**', 'apps/**', '.github/workflows/tutor-check.yml', 'compose.tutor.yml', '.dockerignore']
+    paths: ['services/tutor/**', 'apps/**', 'deploy/tutor/**', '.github/workflows/tutor-check.yml', 'compose.tutor*.yml', '.dockerignore']
 permissions:
   contents: read
 concurrency:
@@ -30,3 +30,41 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Generate and play a narrated sample without paid APIs
         run: node --disable-warning=ExperimentalWarning services/tutor/scripts/smoke.mjs
+  deployment-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TUTOR_DOMAIN: http://pt.yokily.test
+      TUTOR_HTTP_BIND: 127.0.0.1:8088
+      TUTOR_HTTPS_BIND: 127.0.0.1:8443
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Prepare private server configuration and validate HTTPS config
+        run: |
+          python3 deploy/tutor/prepare-env.py
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml config --quiet
+          docker run --rm --network none -v "$PWD/deploy/tutor/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Build and start the actual deployment containers
+        run: |
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml build tutor
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml up -d
+          curl --fail --retry 20 --retry-delay 1 --retry-connrefused --silent http://127.0.0.1:8788/api/health > "$RUNNER_TEMP/tutor-health.json"
+          python3 -c 'import json,os; from pathlib import Path; h=json.loads((Path(os.environ["RUNNER_TEMP"])/"tutor-health.json").read_text()); assert h["liveEnabled"] is False and h["stopped"] is False'
+      - name: Verify proxy isolation, browser dependencies and persistent stop control
+        run: |
+          curl --fail --retry 10 --retry-delay 1 --retry-connrefused --silent -H 'Host: pt.yokily.test' http://127.0.0.1:8088/api/health
+          test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: pt.yokily.test' http://127.0.0.1:8088/api/admin/state)" = 404
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml exec -T tutor node --input-type=module -e 'const {chromium}=await import("playwright");const b=await chromium.launch();try{const p=await b.newPage();await p.goto("http://127.0.0.1:8788/");await p.getByRole("heading",{name:"拍一道题，听懂每一步"}).waitFor();console.log("Container browser loaded tutor website");}finally{await b.close();}'
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml exec -T tutor node control.mjs stop
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml restart tutor
+          curl --fail --retry 20 --retry-delay 1 --retry-connrefused --silent http://127.0.0.1:8788/api/health > "$RUNNER_TEMP/tutor-health.json"
+          python3 -c 'import json,os; from pathlib import Path; assert json.loads((Path(os.environ["RUNNER_TEMP"])/"tutor-health.json").read_text())["stopped"] is True'
+          docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml exec -T tutor node control.mjs resume
+          curl --fail --silent http://127.0.0.1:8788/api/health > "$RUNNER_TEMP/tutor-health.json"
+          python3 -c 'import json,os; from pathlib import Path; h=json.loads((Path(os.environ["RUNNER_TEMP"])/"tutor-health.json").read_text()); assert h["stopped"] is False and h["liveEnabled"] is False'
+      - name: Stop disposable verification containers
+        if: always()
+        run: docker compose -p tutor-ci -f compose.tutor.yml -f compose.tutor.public.yml down

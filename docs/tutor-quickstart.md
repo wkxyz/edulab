@@ -42,6 +42,8 @@ node --disable-warning=ExperimentalWarning --env-file=.env server.mjs
 
 ## 云主机部署准备
 
+目标域名 `pt.yokily.com` 的Caddy/HTTPS配置和完整命令见 [tutor-deploy-pt.md](tutor-deploy-pt.md)。
+
 推荐起步 4 核 8GB、80GB SSD、Ubuntu 24.04；先按并发 1 验证。服务器调用远程模型/配音接口，不需要本地运行大模型或购买 GPU。
 
 ```bash

@@ -1,0 +1,27 @@
+# Add HTTPS for the dedicated pt.yokily.com host without exposing the tutor service port.
+# Use together with compose.tutor.yml, never as a replacement for its persistent volume.
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "${TUTOR_HTTP_BIND:-80}:80"
+      - "${TUTOR_HTTPS_BIND:-443}:443"
+    environment:
+      TUTOR_DOMAIN: ${TUTOR_DOMAIN:-pt.yokily.com}
+    volumes:
+      - ./deploy/tutor/Caddyfile:/etc/caddy/Caddyfile:ro
+      - tutor-caddy-data:/data
+      - tutor-caddy-config:/config
+    depends_on:
+      - tutor
+    cpus: 0.5
+    mem_limit: 128m
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    init: true
+    restart: "no"
+volumes:
+  tutor-caddy-data:
+  tutor-caddy-config:

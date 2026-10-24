@@ -1,0 +1,20 @@
+{
+	admin off
+}
+
+{$TUTOR_DOMAIN:pt.yokily.com} {
+	# Operations stay on the container's loopback interface, even when a token is configured.
+	@operations path /api/admin /api/admin/*
+	respond @operations 404
+
+	request_body {
+		max_size 6MB
+	}
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy tutor:8788
+}
