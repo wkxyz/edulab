@@ -23,9 +23,5 @@ venv/
 .ipynb_checkpoints/
 .tutor-data/
 .superpowers/
-apps/miniapp/src/
-apps/miniapp/dist/
-apps/miniapp/UNI-STARTER-LICENSE
 services/tutor/.env
-apps/miniapp/.env
 **/.env.local

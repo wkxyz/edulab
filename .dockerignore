@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+.tutor-data
+output
+docs
+generated_images

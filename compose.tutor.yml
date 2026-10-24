@@ -1,0 +1,22 @@
+services:
+  tutor:
+    build:
+      context: .
+      dockerfile: services/tutor/Dockerfile
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - tutor-data:/data
+    env_file:
+      - services/tutor/.env
+    environment:
+      HOST: 0.0.0.0
+      TUTOR_DATA_DIR: /data
+    cpus: 2.0
+    mem_limit: 3g
+    pids_limit: 256
+    shm_size: 256mb
+    init: true
+    restart: "no"
+volumes:
+  tutor-data:

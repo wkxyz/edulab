@@ -25,7 +25,7 @@ export async function solve(input,config,ctx){
  if(lesson.unreadable)fail('INVALID_LESSON');
  const clean=validateLesson(lesson);clean.meta.style=input.style;
  ctx.stage('checking');
- const verification=await chat(config,[{role:'system',content:'独立复核题目的条件、每一步推导与答案。只输出JSON：{"correct":true} 或 {"correct":false}。不确定、遗漏条件或读题错误必须为false。'}, {role:'user',content:[{type:'text',text:JSON.stringify(clean)},...(input.image?[{type:'image_url',image_url:{url:input.image}}]:[])]}],640,ctx);
+ const verification=await chat(config,[{role:'system',content:'独立复核原始题目的条件、每一步推导与答案。必须将讲解中的题目与用户原始文字和图片比较，不能只验证改写后的题目。只输出JSON：{"correct":true} 或 {"correct":false}。不确定、遗漏条件或读题错误必须为false。'}, {role:'user',content:[{type:'text',text:JSON.stringify({originalText:input.text||'',proposedLesson:clean})},...(input.image?[{type:'image_url',image_url:{url:input.image}}]:[])]}],640,ctx);
  if(verification.correct!==true)fail('REVIEW_FAILED');return clean;
 }
 export async function glmSpeech(text,file,config,ctx){

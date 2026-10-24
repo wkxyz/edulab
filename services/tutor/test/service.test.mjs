@@ -60,6 +60,10 @@ test('permanent failure is terminal without automatic retries',async()=>{
  }finally{x.done();}
 });
 test('empty queue makes no runner calls',async()=>{let calls=0;const x=make({runner:async()=>{calls++;}});try{await x.tutor.drain();assert.equal(calls,0);}finally{x.done();}});
+test('jobs submitted during a full drain batch are eventually processed',async()=>{
+ const releases=[];let started=0;const x=make({autoRun:true,queueLimit:2,runner:async()=>{started++;if(started<=2)await new Promise(r=>releases.push(r));return {};}});
+ try{x.tutor.create(sample,'a','1');await new Promise(r=>setImmediate(r));x.tutor.create(sample,'b','1');releases.shift()();await new Promise(r=>setImmediate(r));const c=x.tutor.create(sample,'c','1');releases.shift()();await new Promise(r=>setImmediate(r));await new Promise(r=>setImmediate(r));assert.equal(x.tutor.get(c.id,'c').status,'completed');assert.equal(started,3);}finally{x.done();}
+});
 test('live requests are rejected before enqueuing when not configured',()=>{const x=make();try{assert.throws(()=>x.tutor.create({text:'求二加二'},'a','1'),/NOT_CONFIGURED/);assert.equal(x.tutor.list('a').length,0);}finally{x.done();}});
 test('cancel aborts current work and prevents a later stage',async()=>{
  let release;let later=0;const x=make({runner:async(task,ctx)=>{await new Promise(r=>{release=r;});ctx.guard();later++;return {};}});
@@ -70,4 +74,15 @@ test('cancel aborts current work and prevents a later stage',async()=>{
 test('stop during execution aborts it before any further stage',async()=>{
  let release;let later=0;const x=make({runner:async(task,ctx)=>{await new Promise(r=>{release=r;});ctx.guard();later++;return {};}});
  try {const a=x.tutor.create(sample,'a','1');const p=x.tutor.run(a.id);await new Promise(r=>setImmediate(r));x.tutor.setStopped(true);release();await p;assert.equal(later,0);assert.equal(x.tutor.get(a.id,'a').status,'cancelled');}finally{x.done();}
+});
+test('project budget reservation survives restart and another device',()=>{
+ const opts={liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:60};const x=make(opts);
+ try{x.tutor.create({text:'求二加二'},'a','1');assert.throws(()=>x.tutor.create({text:'求三加三'},'b','1'),/BUDGET_EXHAUSTED/);x.tutor.close();x.tutor=new mod.Tutor({dataDir:x.dir,autoRun:false,...opts});assert.throws(()=>x.tutor.create({text:'求四加四'},'c','1'),/BUDGET_EXHAUSTED/);}finally{x.done();}
+});
+test('one live task cannot make a fifteenth external call or retry it',async()=>{
+ let calls=0;const x=make({liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:10,runner:async(task,ctx)=>{for(let n=0;n<15;n++){ctx.guard(true);calls++;}}});
+ try{const a=x.tutor.create({text:'求二加二'},'a','1');await x.tutor.run(a.id);await x.tutor.run(a.id);assert.equal(calls,14);assert.equal(x.tutor.get(a.id,'a').error,'CALL_LIMIT');}finally{x.done();}
+});
+test('expired queued work never reaches a provider',async()=>{
+ let calls=0;const x=make({runner:async()=>{calls++;}});try{const a=x.tutor.create(sample,'a','1');x.tutor.db.prepare('UPDATE tasks SET expires=0 WHERE id=?').run(a.id);await x.tutor.run(a.id);assert.equal(calls,0);assert.equal(x.tutor.get(a.id,'a').error,'EXPIRED');}finally{x.done();}
 });

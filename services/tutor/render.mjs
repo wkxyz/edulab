@@ -3,6 +3,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';import {createRequire} from
 import {compile,expandIntro,toSrt} from '../../skills/edu-math-video/lesson/scripts/compile.mjs';
 import {makePage} from '../../skills/edu-math-video/lesson/scripts/build.mjs';
 import {fail} from './validation.mjs';
+import {withBrowser} from './browser-session.mjs';
 const require=createRequire(import.meta.url);const HERE=path.dirname(fileURLToPath(import.meta.url));
 export function runProcess(command,args,{signal,cwd,maxBytes=32*1024*1024}={}){
  return new Promise((resolve,reject)=>{
@@ -34,9 +35,8 @@ export async function renderLesson(lesson,clips,outDir,ctx,{fps=15,scale=1}={}){
  html=html.replace('</head>','<style>body,.stage,.ln,.ct{font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif!important}</style></head>');
  fs.writeFileSync(path.join(outDir,'preview.html'),html);fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));fs.writeFileSync(path.join(outDir,'subtitles.srt'),toSrt(timeline.captions));
  const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
- const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-frames-'));
- try{
+ try{return await withBrowser(ctx.signal,()=>chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})}),async browser=>{
   const page=await browser.newPage({viewport:{width:1280,height:720},deviceScaleFactor:scale});
   await page.goto(pathToFileURL(path.join(outDir,'preview.html')).href+'?mode=render');
   await page.waitForFunction(()=>!!globalThis.SV?.state());await page.evaluate(()=>SV.state().ready);
@@ -45,5 +45,5 @@ export async function renderLesson(lesson,clips,outDir,ctx,{fps=15,scale=1}={}){
   ctx.guard();await page.evaluate(t=>SV.seek(t),timeline.duration-1);await page.screenshot({path:path.join(outDir,'cover.png')});
   await runProcess(process.env.FFMPEG||'ffmpeg',['-v','error','-y','-framerate',String(fps),'-i',path.join(tmp,'%05d.jpg'),'-i',path.join(outDir,'audio.wav'),'-c:v','libx264','-preset','fast','-crf','23','-pix_fmt','yuv420p','-c:a','aac','-b:a','96k','-shortest','-movflags','+faststart',path.join(outDir,'video.mp4')],{signal:ctx.signal});
   ctx.guard();return {duration:timeline.duration,segments:timeline.scenes.map(s=>({title:s.title,at:s.at}))};
- }finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}
+ });}finally{fs.rmSync(tmp,{recursive:true,force:true});}
 }

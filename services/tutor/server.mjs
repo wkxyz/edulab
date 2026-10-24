@@ -8,6 +8,13 @@ export async function startServer(options={}){
  const server=http.createServer(async(req,res)=>{
   try{
    const url=new URL(req.url,'http://localhost'),p=url.pathname;
+   if(p==='/api/admin/state'){
+    const sent=Buffer.from((req.headers.authorization||'').replace(/^Bearer /,'')),expected=Buffer.from(config.adminToken||'');
+    if(!expected.length)fail('NOT_FOUND',404);if(sent.length!==expected.length||!timingSafeEqual(sent,expected))fail('FORBIDDEN',403);
+    if(req.method==='POST'){const data=await body(req);if(typeof data.stopped!=='boolean')fail('INVALID_STATE');tutor.setStopped(data.stopped);}
+    else if(req.method!=='GET')fail('NOT_FOUND',404);
+    return json(res,200,{stopped:tutor.isStopped(),running:tutor.running.size,queued:tutor.db.prepare("SELECT count(*) n FROM tasks WHERE status='queued'").get().n});
+   }
    if(p==='/api/health'&&req.method==='GET')return json(res,200,{liveEnabled:config.liveEnabled&&config.configured&&!tutor.isStopped()&&config.dayBudgetCents>0&&config.jobBudgetCents>0,stopped:tutor.isStopped(),sampleAvailable:['darwin','linux'].includes(process.platform),maxImageBytes:4194304});
    if(p==='/api/session'&&req.method==='POST'){
     if(tutor.isStopped())fail('STOPPED',503);
@@ -15,6 +22,7 @@ export async function startServer(options={}){
     tutor.db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());
     const token=randomBytes(32).toString('hex');tutor.db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(token,Date.now(),Date.now()+30*86400000);return json(res,201,{token});
    }
+   if(p.startsWith('/api/')&&tutor.isStopped())fail('STOPPED',503);
    const media=/^\/api\/media\/([a-f0-9-]{36})\/(video\.mp4|cover\.png)$/.exec(p);
    if(media){
     const row=tutor.db.prepare("SELECT media_token,expires FROM tasks WHERE id=? AND status='completed'").get(media[1]);
@@ -34,9 +42,9 @@ export async function startServer(options={}){
     fail('NOT_FOUND',404);
    }
    if(!['GET','HEAD'].includes(req.method))fail('NOT_FOUND',404);
-   const root=path.resolve(HERE,'../../apps/preview'),files={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};
+   const root=path.resolve(HERE,'../../apps/web'),files={'/':'index.html','/app.js':'app.js','/api-client.mjs':'api-client.mjs','/style.css':'style.css'};
    const name=files[p];if(!name||!fs.existsSync(path.join(root,name)))fail('NOT_FOUND',404);
-   const data=fs.readFileSync(path.join(root,name));res.writeHead(200,{'content-type':name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache','referrer-policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:data);
+   const data=fs.readFileSync(path.join(root,name));res.writeHead(200,{'content-type':/\.m?js$/.test(name)?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache','referrer-policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:data);
   }catch(e){if(!res.headersSent)json(res,e instanceof TutorError?e.status:500,{error:e instanceof TutorError?e.code:'INTERNAL_ERROR'});else res.destroy();}
  });
  server.requestTimeout=15000;server.headersTimeout=10000;

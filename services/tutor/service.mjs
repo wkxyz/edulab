@@ -50,14 +50,18 @@ export class Tutor {
   if(['queued','running'].includes(row.status)){this.db.prepare("UPDATE tasks SET status='cancelled',stage='cancelled',error='CANCELLED' WHERE id=?").run(id);this.running.get(id)?.abort();}
   return this.get(id,owner);
  }
- wake(){queueMicrotask(()=>{if(!this.closed)this.drain().catch(()=>{});});}
+ wake(){if(this.closed||this.wakePending)return;this.wakePending=true;queueMicrotask(()=>{this.wakePending=false;if(!this.closed)this.drain().catch(()=>{});});}
  async drain(){
-  if(this.draining||this.closed)return;this.draining=true;
+  if(this.draining||this.closed||this.running.size)return;this.draining=true;
   try{for(let n=0;n<this.options.queueLimit;n++){
    if(this.closed||this.isStopped())break;
    const row=this.db.prepare("SELECT id FROM tasks WHERE status='queued' ORDER BY created LIMIT 1").get();if(!row)break;
    await this.run(row.id);
-  }}finally{this.draining=false;}
+  }}finally{
+   this.draining=false;
+   // Only schedule existing admitted work, bounded by persistent project/queue/attempt limits.
+   if(!this.closed&&!this.isStopped()&&!this.running.size&&this.db.prepare("SELECT 1 FROM tasks WHERE status='queued' LIMIT 1").get())this.wake();
+  }
  }
  async run(id){
   if(this.closed||this.isStopped()||this.running.size)return;
@@ -83,7 +87,7 @@ export class Tutor {
     const code=knownErrors.has(e.code)?e.code:controller.signal.aborted?'CANCELLED':'GENERATION_FAILED';
     this.db.prepare('UPDATE tasks SET status=?,stage=?,error=? WHERE id=?').run(code==='CANCELLED'?'cancelled':'failed',code==='CANCELLED'?'cancelled':'failed',code,id);
    }
-  }finally{clearTimeout(timer);this.running.delete(id);}
+  }finally{clearTimeout(timer);this.running.delete(id);if(this.closed)this.db.close();else if(this.options.autoRun&&!this.draining)this.wake();}
  }
- close(){if(this.closed)return;this.closed=true;for(const controller of this.running.values())controller.abort();this.running.clear();this.db.close();}
+ close(){if(this.closed)return;this.closed=true;for(const controller of this.running.values())controller.abort();if(!this.running.size)this.db.close();}
 }
