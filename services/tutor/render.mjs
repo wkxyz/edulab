@@ -25,6 +25,10 @@ export async function renderLesson(lesson,clips,outDir,ctx,{fps=15,scale=1}={}){
  ctx.guard();const expanded=expandIntro(lesson);const timeline=compile(expanded,clips);
  if(timeline.warnings.length)fail('INVALID_FORMULA');
  if(timeline.duration>240)fail('LESSON_TOO_LONG');
+ // The shared engine targets dense lecture boards. This text-only website uses larger type.
+ timeline.captions=timeline.captions.flatMap(c=>{
+  const chars=Array.from(c.text),chunks=[];for(let i=0;i<chars.length;i+=26){const count=Math.min(26,chars.length-i);chunks.push({...c,text:chars.slice(i,i+count).join(''),at:c.at+(c.end-c.at)*i/chars.length,end:c.at+(c.end-c.at)*(i+count)/chars.length,words:[]});}return chunks;
+ });
  const sr=24000,pcm=new Int16Array(Math.ceil(timeline.duration*sr));
  for(const clip of timeline.audio){ctx.guard();const raw=await runProcess(process.env.FFMPEG||'ffmpeg',['-v','error','-i',clip.file,'-f','s16le','-ac','1','-ar','24000','-'],{signal:ctx.signal});const src=new Int16Array(raw.buffer,raw.byteOffset,raw.length/2);let off=Math.round(clip.at*sr);for(let i=0;i<src.length&&off+i<pcm.length;i++)pcm[off+i]=src[i];}
  const header=Buffer.alloc(44);header.write('RIFF');header.writeUInt32LE(36+pcm.byteLength,4);header.write('WAVE',8);header.write('fmt ',12);header.writeUInt32LE(16,16);header.writeUInt16LE(1,20);header.writeUInt16LE(1,22);header.writeUInt32LE(sr,24);header.writeUInt32LE(sr*2,28);header.writeUInt16LE(2,32);header.writeUInt16LE(16,34);header.write('data',36);header.writeUInt32LE(pcm.byteLength,40);
@@ -32,7 +36,7 @@ export async function renderLesson(lesson,clips,outDir,ctx,{fps=15,scale=1}={}){
  let html=makePage(timeline);
  try{const dist=path.dirname(require.resolve('katex/dist/katex.min.js'));html=html.replaceAll(/file:\/\/[^"\s]*\/node_modules\/katex\/dist\//g,pathToFileURL(dist+'/').href);}catch{if(ctx.live)fail('RENDER_FAILED');}
  html=html.replace(/<link rel="stylesheet" href="(file:[^"]+)"[^>]*>/g,(tag,url)=>fs.existsSync(fileURLToPath(url))?tag:'');
- html=html.replace('</head>','<style>body,.stage,.ln,.ct{font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif!important}</style></head>');
+ html=html.replace('</head>','<style>body,.stage,.ln,.ct{font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif!important}.stage.nofig .col{font-size:80px;line-height:1.4}.stage.nofig .ln.title{font-size:52px}.stage.nofig .cap{font-size:40px;max-width:1180px}</style></head>');
  fs.writeFileSync(path.join(outDir,'preview.html'),html);fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));fs.writeFileSync(path.join(outDir,'subtitles.srt'),toSrt(timeline.captions));
  const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-frames-'));
@@ -40,6 +44,7 @@ export async function renderLesson(lesson,clips,outDir,ctx,{fps=15,scale=1}={}){
   const page=await browser.newPage({viewport:{width:1280,height:720},deviceScaleFactor:scale});
   await page.goto(pathToFileURL(path.join(outDir,'preview.html')).href+'?mode=render');
   await page.waitForFunction(()=>!!globalThis.SV?.state());await page.evaluate(()=>SV.state().ready);
+  if((await page.evaluate(()=>SV.report())).length)fail('INVALID_LESSON');
   const n=Math.ceil(timeline.duration*fps);
   for(let i=0;i<n;i++){ctx.guard();await page.evaluate(t=>SV.seek(t),i/fps);await page.screenshot({path:path.join(tmp,`${String(i).padStart(5,'0')}.jpg`),type:'jpeg',quality:86});}
   ctx.guard();await page.evaluate(t=>SV.seek(t),timeline.duration-1);await page.screenshot({path:path.join(outDir,'cover.png')});
