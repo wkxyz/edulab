@@ -3,6 +3,7 @@ import {sampleLesson} from './sample.mjs';import {solve,glmSpeech} from './ai.mj
 import {renderLesson,narrateOffline,duration} from './render.mjs';
 import {expandIntro} from '../../skills/edu-math-video/lesson/scripts/compile.mjs';
 import {validateLesson} from './validation.mjs';
+import {kieSpeech} from './kie.mjs';
 export function createRunner(config){return async(task,ctx)=>{
  ctx.live=task.mode==='live';ctx.guard();const out=path.join(config.dataDir,'jobs',task.id);fs.mkdirSync(out,{recursive:true});
  try{
@@ -13,7 +14,7 @@ export function createRunner(config){return async(task,ctx)=>{
   ctx.stage('voicing');const clips=[],beats=expandIntro(lesson).scenes.flatMap(s=>s.beats);
   for(let i=0;i<beats.length;i++){
    ctx.guard();const file=path.join(out,`speech-${i}.wav`),text=beats[i].speak||beats[i].say;
-   if(task.mode==='sample')await narrateOffline(text,file,ctx);else await glmSpeech(text,file,config,ctx);
+   if(task.mode==='sample')await narrateOffline(text,file,ctx);else if(config.ttsProvider==='kie')await kieSpeech(text,file,config,ctx);else await glmSpeech(text,file,config,ctx);
    const seconds=await duration(file,ctx.signal);if(!Number.isFinite(seconds)||seconds<=0||seconds>45)throw new Error('BAD_AUDIO');clips.push({file,duration:seconds,words:[]});
   }
   ctx.stage('rendering');const rendered=await renderLesson(lesson,clips,out,ctx,config.renderOptions);

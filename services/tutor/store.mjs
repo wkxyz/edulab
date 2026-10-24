@@ -14,5 +14,7 @@ export function openStore(dir){
  CREATE TABLE IF NOT EXISTS owner_daily(owner TEXT NOT NULL,day TEXT NOT NULL,jobs INTEGER NOT NULL,PRIMARY KEY(owner,day));
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,created INTEGER NOT NULL,expires INTEGER NOT NULL);
  UPDATE tasks SET status='failed',stage='failed',error='INTERRUPTED' WHERE status='running';`);
+ // Upgrade an existing tutor volume without dropping its tasks, quotas or stop state.
+ if(!db.prepare('PRAGMA table_info(tasks)').all().some(c=>c.name==='requests'))db.exec('ALTER TABLE tasks ADD COLUMN requests INTEGER NOT NULL DEFAULT 0');
  return db;
 }

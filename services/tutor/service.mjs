@@ -73,10 +73,10 @@ export class Tutor {
   const timer=setTimeout(()=>controller.abort(new TutorError('TIMEOUT')),Math.max(1,row.expires-Date.now()));timer.unref();
   const guard=(external=false)=>{
    if(this.closed||controller.signal.aborted||this.isStopped())fail(controller.signal.reason?.code==='TIMEOUT'?'TIMEOUT':'CANCELLED');
-   const current=this.db.prepare('SELECT status,calls,expires FROM tasks WHERE id=?').get(id);
+   const current=this.db.prepare('SELECT status,calls,requests,expires FROM tasks WHERE id=?').get(id);
    if(!current||current.status!=='running')fail('CANCELLED');
    if(Date.now()>current.expires)fail('EXPIRED');
-   if(external){if(row.mode!=='live'||current.calls>=14)fail('CALL_LIMIT');this.db.prepare('UPDATE tasks SET calls=calls+1 WHERE id=?').run(id);}
+   if(external){const paid=external===true;if((!paid&&external!=='read')||row.mode!=='live'||current.requests>=171||(paid&&current.calls>=14))fail('CALL_LIMIT');this.db.prepare('UPDATE tasks SET requests=requests+1,calls=calls+? WHERE id=?').run(paid?1:0,id);}
   };
   try{
    const result=await this.runner({...row,input:JSON.parse(row.input)},{signal:controller.signal,guard,stage:(s)=>{guard();if(!['recognizing','solving','checking','voicing','rendering'].includes(s))fail('INVALID_STAGE');this.db.prepare('UPDATE tasks SET stage=? WHERE id=?').run(s);}});

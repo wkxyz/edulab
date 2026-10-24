@@ -86,3 +86,7 @@ test('one live task cannot make a fifteenth external call or retry it',async()=>
 test('expired queued work never reaches a provider',async()=>{
  let calls=0;const x=make({runner:async()=>{calls++;}});try{const a=x.tutor.create(sample,'a','1');x.tutor.db.prepare('UPDATE tasks SET expires=0 WHERE id=?').run(a.id);await x.tutor.run(a.id);assert.equal(calls,0);assert.equal(x.tutor.get(a.id,'a').error,'EXPIRED');}finally{x.done();}
 });
+test('status reads have a persistent cap independent of the fourteen paid calls',async()=>{
+ let reads=0;const x=make({liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:10,runner:async(task,ctx)=>{for(let n=0;n<172;n++){ctx.guard('read');reads++;}}});
+ try{const a=x.tutor.create({text:'求二加二'},'a','1');await x.tutor.run(a.id);assert.equal(reads,171);assert.equal(x.tutor.get(a.id,'a').error,'CALL_LIMIT');const row=x.tutor.db.prepare('SELECT calls,requests FROM tasks WHERE id=?').get(a.id);assert.equal(row.calls,0);assert.equal(row.requests,171);x.tutor.close();x.tutor=new mod.Tutor({dataDir:x.dir,autoRun:false});assert.equal(x.tutor.db.prepare('SELECT requests FROM tasks WHERE id=?').get(a.id).requests,171);}finally{x.done();}
+});
