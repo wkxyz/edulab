@@ -79,6 +79,24 @@ test('project budget reservation survives restart and another device',()=>{
  const opts={liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:60};const x=make(opts);
  try{x.tutor.create({text:'求二加二'},'a','1');assert.throws(()=>x.tutor.create({text:'求三加三'},'b','1'),/BUDGET_EXHAUSTED/);x.tutor.close();x.tutor=new mod.Tutor({dataDir:x.dir,autoRun:false,...opts});assert.throws(()=>x.tutor.create({text:'求四加四'},'c','1'),/BUDGET_EXHAUSTED/);}finally{x.done();}
 });
+test('a live trial limit survives cancellation, a new day and restart without counting samples',()=>{
+ const opts={liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:10,liveTaskLimit:1};const x=make(opts);
+ try{
+  x.tutor.create(sample,'a','sample');
+  const first=x.tutor.create({text:'求二加二'},'a','live');x.tutor.cancel(first.id,'a');
+  assert.equal(x.tutor.create({text:'求二加二'},'a','live').id,first.id);
+  assert.throws(()=>x.tutor.create({text:'求三加三'},'b','live'),/LIVE_LIMIT/);
+  x.tutor.db.exec('DELETE FROM daily; DELETE FROM owner_daily');x.tutor.close();
+  x.tutor=new mod.Tutor({dataDir:x.dir,autoRun:false,...opts});
+  assert.throws(()=>x.tutor.create({text:'求四加四'},'c','live'),/LIVE_LIMIT/);
+  assert.equal(x.tutor.db.prepare("SELECT count(*) n FROM tasks WHERE mode='live'").get().n,1);
+  assert.equal(x.tutor.create(sample,'c','sample').mode,'sample');
+ }finally{x.done();}
+});
+test('a zero live trial limit rejects a paid task before reserving budget',()=>{
+ const x=make({liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:10,liveTaskLimit:0});
+ try{assert.throws(()=>x.tutor.create({text:'求二加二'},'a','live'),/LIVE_LIMIT/);assert.equal(x.tutor.db.prepare('SELECT count(*) n FROM daily').get().n,0);}finally{x.done();}
+});
 test('one live task cannot make a fifteenth external call or retry it',async()=>{
  let calls=0;const x=make({liveEnabled:true,configured:true,dayBudgetCents:100,jobBudgetCents:10,runner:async(task,ctx)=>{for(let n=0;n<15;n++){ctx.guard(true);calls++;}}});
  try{const a=x.tutor.create({text:'求二加二'},'a','1');await x.tutor.run(a.id);await x.tutor.run(a.id);assert.equal(calls,14);assert.equal(x.tutor.get(a.id,'a').error,'CALL_LIMIT');}finally{x.done();}

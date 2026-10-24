@@ -15,7 +15,7 @@ export async function startServer(options={}){
     else if(req.method!=='GET')fail('NOT_FOUND',404);
     return json(res,200,{stopped:tutor.isStopped(),running:tutor.running.size,queued:tutor.db.prepare("SELECT count(*) n FROM tasks WHERE status='queued'").get().n});
    }
-   if(p==='/api/health'&&req.method==='GET')return json(res,200,{liveEnabled:config.liveEnabled&&config.configured&&!tutor.isStopped()&&config.dayBudgetCents>0&&config.jobBudgetCents>0,stopped:tutor.isStopped(),sampleAvailable:['darwin','linux'].includes(process.platform),maxImageBytes:4194304});
+   if(p==='/api/health'&&req.method==='GET')return json(res,200,{liveEnabled:config.liveEnabled&&config.liveTaskLimit>0&&config.configured&&!tutor.isStopped()&&config.dayBudgetCents>0&&config.jobBudgetCents>0,stopped:tutor.isStopped(),sampleAvailable:['darwin','linux'].includes(process.platform),maxImageBytes:4194304});
    if(p==='/api/session'&&req.method==='POST'){
     if(tutor.isStopped())fail('STOPPED',503);
     const count=tutor.db.prepare('SELECT count(*) n FROM sessions WHERE expires>?').get(Date.now()).n;if(count>=500)fail('SESSION_LIMIT',429);

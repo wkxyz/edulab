@@ -3,6 +3,11 @@ import {configFromEnv} from '../config.mjs';import {kieSpeech,uploadQuestion} fr
 const config=()=>configFromEnv({AI_PROVIDER:'kie',KIE_API_KEY:'test-only'});
 const context=()=>{const controller=new AbortController(),counts={paid:0,read:0};return {controller,counts,signal:controller.signal,stage(){},guard(kind){controller.signal.throwIfAborted();if(kind===true)counts.paid++;if(kind==='read')counts.read++;}};};
 const fixture=async(fn,work)=>{const original=globalThis.fetch;globalThis.fetch=fn;try{return await work();}finally{globalThis.fetch=original;}};
+test('live trial cap accepts an explicit stop or one task and rejects invalid limits',()=>{
+ assert.equal(configFromEnv({LIVE_TASK_LIMIT:'0'}).liveTaskLimit,0);
+ assert.equal(configFromEnv({LIVE_TASK_LIMIT:'1'}).liveTaskLimit,1);
+ for(const value of ['-1','1.5','201','NaN'])assert.throws(()=>configFromEnv({LIVE_TASK_LIMIT:value}),/Invalid configuration: LIVE_TASK_LIMIT/);
+});
 test('one KIE key configures both providers without a GLM key',()=>{
  const c=config();assert.equal(c.configured,true);assert.equal(c.aiKey,'test-only');assert.equal(c.ttsKey,'test-only');assert.equal(c.aiBase,'https://api.kie.ai/gemini-3-pro/v1');assert.equal(c.ttsProvider,'kie');assert.equal(c.liveEnabled,false);
  assert.equal(configFromEnv({AI_PROVIDER:'kie',GLM_API_KEY:'unrelated'}).configured,false);

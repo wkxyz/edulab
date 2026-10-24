@@ -13,7 +13,7 @@ const icon = name => `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true
   check:'<path d="m5 12 4 4L19 6"/>', arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',
   book:'<path d="M12 5v15M3 4c4-1 7 0 9 2 2-2 5-3 9-2v15c-4-1-7 0-9 2-2-2-5-3-9-2z"/>',
 }[name]||''}</svg>`;
-const errors={NOT_CONFIGURED:'真实解题服务尚未开通，可先体验示例讲解。',STOPPED:'服务已暂停，请稍后再试。',OWNER_LIMIT:'今天的体验次数已用完。',PROJECT_LIMIT:'今天的生成额度已用完。',TOTAL_LIMIT:'体验服务容量已满。',QUEUE_FULL:'当前排队较多，请稍后再试。',BUDGET_EXHAUSTED:'今天的服务额度已用完。',INVALID_IMAGE:'图片格式不正确，请重新选择。',REVIEW_FAILED:'解答未通过复核，请重新拍摄完整题目。',INVALID_LESSON:'暂时无法可靠讲解这道题，请重新拍摄。',CANCELLED:'任务已取消。',TIMEOUT:'本次生成超时，请稍后重试。',EXPIRED:'任务已过期。',INTERRUPTED:'服务重启，本次任务已停止，可重新提交。'};
+const errors={LIVE_LIMIT:'真实解题体验额度已用完，请等待服务方开放更多额度。',NOT_CONFIGURED:'真实解题服务尚未开通，可先体验示例讲解。',STOPPED:'服务已暂停，请稍后再试。',OWNER_LIMIT:'今天的体验次数已用完。',PROJECT_LIMIT:'今天的生成额度已用完。',TOTAL_LIMIT:'体验服务容量已满。',QUEUE_FULL:'当前排队较多，请稍后再试。',BUDGET_EXHAUSTED:'今天的服务额度已用完。',INVALID_IMAGE:'图片格式不正确，请重新选择。',REVIEW_FAILED:'解答未通过复核，请重新拍摄完整题目。',INVALID_LESSON:'暂时无法可靠讲解这道题，请重新拍摄。',CANCELLED:'任务已取消。',TIMEOUT:'本次生成超时，请稍后重试。',EXPIRED:'任务已过期。',INTERRUPTED:'服务重启，本次任务已停止，可重新提交。'};
 const api=createClient({message:code=>errors[code]||'暂时无法完成，请稍后重试。'});
 
 function showError(error){

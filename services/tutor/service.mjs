@@ -5,7 +5,7 @@ import {validateInput,TutorError,fail} from './validation.mjs';
 const knownErrors=new Set(['STOPPED','CANCELLED','EXPIRED','TIMEOUT','NOT_CONFIGURED','REVIEW_FAILED','INVALID_LESSON','UNSUPPORTED_ANIMATION','LESSON_TOO_LONG','INVALID_FORMULA','RENDER_FAILED','PROVIDER_FAILED','CALL_LIMIT']);
 export class Tutor {
  constructor(options={}){
-  this.options={dailyLimit:20,ownerLimit:5,totalLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,...options};
+  this.options={dailyLimit:20,ownerLimit:5,totalLimit:200,liveTaskLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,...options};
   this.db=openStore(options.dataDir);this.running=new Map();this.closed=false;this.draining=false;
   this.runner=options.runner||(async()=>fail('NOT_CONFIGURED',503));
  }
@@ -25,6 +25,7 @@ export class Tutor {
   this.db.exec('BEGIN IMMEDIATE');
   try{
    if(this.isStopped())fail('STOPPED',503);
+   if(mode==='live'&&this.db.prepare("SELECT count(*) n FROM tasks WHERE mode='live'").get().n>=o.liveTaskLimit)fail('LIVE_LIMIT',429);
    if(this.db.prepare('SELECT count(*) n FROM tasks').get().n>=o.totalLimit)fail('TOTAL_LIMIT',429);
    if(this.db.prepare("SELECT count(*) n FROM tasks WHERE status IN ('queued','running')").get().n>=o.queueLimit)fail('QUEUE_FULL',429);
    const usage=this.db.prepare('SELECT * FROM daily WHERE day=?').get(day);
