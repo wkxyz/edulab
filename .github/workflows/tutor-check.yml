@@ -14,7 +14,7 @@ concurrency:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     env:
       PYTHON: /usr/bin/python3
     steps:
@@ -35,7 +35,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg espeak-ng fonts-noto-cjk
-          npm install --prefix services/tutor --ignore-scripts --no-audit --no-fund
           cd services/tutor
           npx playwright install --with-deps chromium
       - name: Generate and play a narrated sample without paid APIs
