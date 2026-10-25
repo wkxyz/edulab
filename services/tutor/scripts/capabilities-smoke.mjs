@@ -137,7 +137,7 @@ async function seekPreview(frame,ratio){
   }
 }
 async function videoPreviewProof(page,frame,{handdrawn=false,capability}){
-  const animated=capability!=='math-video'||handdrawn;
+  const animated=await frame.locator('#c').count()>0;
   if(animated){await canvasReady(frame,'#c');await frame.evaluate(async()=>{if(window.ready)await window.ready;});}
   else{
     await frame.locator('#stage').waitFor({state:'visible',timeout:UI_MS});
@@ -163,6 +163,18 @@ async function videoPreviewProof(page,frame,{handdrawn=false,capability}){
   return {audioSeconds:audioBefore.duration,played:true,seeked:true,reseeked:true,changedPixels:true,engine:animated?'animation':'board'};
 }
 
+async function unvoicedProof(frame,task){
+  const animated=await frame.locator('#c').count()>0;
+  if(animated)await canvasReady(frame,'#c');
+  else{await frame.locator('#stage').waitFor({state:'visible',timeout:UI_MS});await frame.waitForFunction(()=>!!globalThis.SV?.state()?.ready,null,{timeout:UI_MS});}
+  assert.equal(task.result.audioReady,false);assert.equal(task.result.videoReady,false);
+  assert.equal(task.result.video,undefined);assert.equal(task.result.subtitles,undefined);
+  assert.equal(await frame.locator('audio[src],audio source[src]').count(),0,'default lesson must not load narration');
+  const names=fs.readdirSync(path.join(tempRoot,'jobs',task.id));
+  assert.equal(names.some(name=>/^speech-\d+\.wav$/.test(name)||name==='audio.wav'||name==='video.mp4'),false,'default lesson must not synthesize audio or MP4');
+  return {defaultTtsCalls:0,defaultMp4Renders:0,unnarratedPreview:true};
+}
+
 try{
   ({server,tutor}=await startServer({dataDir:tempRoot,host:'127.0.0.1',port:0,ownerLimit:30,dailyLimit:60,renderOptions:{fps:3},maxMs:TASK_MS,liveEnabled:false,configured:false,aiKey:'',ttsKey:'',aiBase:'',aiModel:'',dayBudgetCents:0,jobBudgetCents:0}));
   base=`http://127.0.0.1:${server.address().port}`;
@@ -185,21 +197,35 @@ try{
     {capability:'math-video'}, {capability:'physics-video'}, {capability:'chem-video'},
     {capability:'math-video',handdrawn:true},
   ];
-  const completed=[];
+  const completed=[],narratedCompleted=[];
   for(const example of examples){
     remaining();const interactive=['solid-geometry','analytic-geometry','chem-reaction'].includes(example.capability);
-    const created=await api('/api/tasks',{method:'POST',data:{capability:example.capability,sampleId:'default',...(interactive?{}:{exportVideo:false,style:example.handdrawn?'handdrawn':'chalk'})},key:'capability_smoke_'+randomUUID()});
-    const task=await waitTask(created.id);assert.equal(task.capability,example.capability);assert.equal(task.mode,'sample');assert.equal(task.result.format,interactive?'interactive':'video');assert.equal(task.result.video,undefined);assertAnswer(task);
+    const created=await api('/api/tasks',{method:'POST',data:{capability:example.capability,sampleId:'default',delivery:'lesson',...(interactive?{}:{exportVideo:false,style:example.handdrawn?'handdrawn':'chalk'})},key:'capability_smoke_'+randomUUID()});
+    const task=await waitTask(created.id);assert.equal(task.capability,example.capability);assert.equal(task.mode,'sample');assert.equal(task.result.format,interactive?'interactive':'lesson');assert.equal(task.result.audioReady,false);assert.equal(task.result.video,undefined);assertAnswer(task);
     await validArtifact(task.result.preview,{type:/text\/html/});await validArtifact(task.result.download,{type:/text\/html/,attachment:true});
-    if(!interactive){assert.ok(task.result.duration>0);await validArtifact(task.result.subtitles,{type:/text\/plain/,attachment:true});}
-    const frame=await openResult(page,task),proof=interactive?await interactiveProof(page,frame,task):await videoPreviewProof(page,frame,example);
+    const frame=await openResult(page,task),proof=interactive?await interactiveProof(page,frame,task):await unvoicedProof(frame,task);
+    if(example.capability==='math-video'&&!example.handdrawn)screenshots.set('DEFAULT_LESSON',await page.screenshot());
     assert.deepEqual(pageErrors,[]);assert.deepEqual(externalRequests,[]);assert.deepEqual(badResponses,[]);
-    completed.push(task);results.push({capability:task.capability,format:task.result.format,variant:example.handdrawn?'handdrawn':'default',answerChecked:true,...proof});
+    completed.push(task);
+    const before=tutor.db.prepare('SELECT attempts,calls,requests,reserve FROM tasks WHERE id=?').get(task.id);
+    const pending=page.waitForResponse(response=>response.request().method()==='POST'&&new URL(response.url()).pathname==='/api/tasks/'+task.id+'/narration',{timeout:UI_MS});
+    await page.getByRole('button',{name:'生成配音讲解',exact:true}).click();const response=await pending;assert.equal(response.status(),202);
+    const admitted=await response.json();assert.notEqual(admitted.id,task.id);assert.equal(admitted.mode,'narration');
+    await page.waitForURL(base+'/#task/'+admitted.id,{timeout:UI_MS});
+    const narrated=await waitTask(admitted.id);assert.equal(narrated.result.format,'video');assert.equal(narrated.result.audioReady,true);assert.equal(narrated.result.videoReady,false);
+    assert.equal(normalizeMath(narrated.result.answer),normalizeMath(task.result.answer),'narration must preserve the checked source answer');
+    await validArtifact(narrated.result.subtitles,{type:/text\/plain/,attachment:true});
+    const narratedFrame=await openResult(page,narrated),narrationProof=await videoPreviewProof(page,narratedFrame,example);
+    const repeated=await api('/api/tasks/'+task.id+'/narration',{method:'POST'});assert.equal(repeated.id,narrated.id);assert.equal(repeated.status,'completed');
+    assert.deepEqual(tutor.db.prepare('SELECT attempts,calls,requests,reserve FROM tasks WHERE id=?').get(task.id),before);
+    if(example.capability==='math-video'&&!example.handdrawn)screenshots.set('NARRATED_PREVIEW',await page.screenshot());
+    narratedCompleted.push({...narrated,originalCapability:task.capability});
+    results.push({capability:task.capability,format:task.result.format,variant:example.handdrawn?'handdrawn':'default',answerChecked:true,...proof,narration:{...narrationProof,newTask:true,repeatReused:true,sourceUnchanged:true,extraChatCalls:0}});
   }
 
   // Exercise the actual frontend export action and follow the new render-only
   // task. Original solution/TTS attempts and counters must remain unchanged.
-  const source=completed.find(task=>task.capability==='physics-video');
+  const source=narratedCompleted.find(task=>task.originalCapability==='physics-video');
   const beforeSource=tutor.db.prepare('SELECT attempts,calls,requests FROM tasks WHERE id=?').get(source.id);
   await openResult(page,source);
   const pendingExport=page.waitForResponse(response=>response.request().method()==='POST'&&new URL(response.url()).pathname===`/api/tasks/${source.id}/export`,{timeout:UI_MS});
@@ -221,7 +247,7 @@ try{
   const repeated=await api('/api/tasks/'+source.id+'/export',{method:'POST'});assert.equal(repeated.id,videoTask.id);assert.equal(repeated.status,'completed');await sleep(250);
   assert.deepEqual(tutor.db.prepare('SELECT attempts,calls,requests FROM tasks WHERE id=?').get(videoTask.id),beforeRepeat);assert.equal(fs.statSync(output).mtimeMs,beforeFile.mtimeMs);assert.equal(tutor.db.prepare('SELECT count(*) count FROM tasks').get().count,beforeCount);assert.equal(beforeRepeat.calls,0);assert.equal(beforeRepeat.requests,0);
   assert.equal(JSON.parse(tutor.db.prepare('SELECT input FROM tasks WHERE id=?').get(videoTask.id).input).exportOf,source.id);
-  assert.deepEqual(tutor.db.prepare("SELECT id FROM tasks WHERE calls<>0 OR requests<>0 OR reserve<>0 OR mode NOT IN ('sample','export')").all(),[]);
+  assert.deepEqual(tutor.db.prepare("SELECT id FROM tasks WHERE calls<>0 OR requests<>0 OR reserve<>0 OR mode NOT IN ('sample','narration','export')").all(),[]);
   assert.equal(tutor.db.prepare('SELECT coalesce(sum(calls),0) calls FROM daily').get().calls,0);assert.equal(tutor.db.prepare('SELECT coalesce(sum(cost),0) cost FROM daily').get().cost,0);
   assert.deepEqual(pageErrors,[]);assert.deepEqual(externalRequests,[]);assert.deepEqual(badResponses,[]);
   console.log('CAPABILITIES_SMOKE_RESULT',JSON.stringify({examples:results,export:{width:stream.width,height:stream.height,duration:Number(probe.format.duration),audio:true,played:true,range:206,newTask:true,repeatReused:true,sourceUnchanged:true,paidCalls:0},pageErrors:0,externalHttpRequests:0}));

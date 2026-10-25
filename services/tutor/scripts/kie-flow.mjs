@@ -20,7 +20,7 @@ export async function verifyKieFlow(root,sourceTask,{provider='kie',acceptance=f
  };
  try{
   const dataDir=path.join(root,provider+'-integration'+(acceptance?'-acceptance':''));
-  app=await startServer({...configFromEnv({AI_PROVIDER:provider,KIE_API_KEY:'mock-only',MINIMAX_API_KEY:'minimax-mock-only',MINIMAX_TTS_API_KEY:'voice-mock-only'}),dataDir,port:0,liveEnabled:true,dayBudgetCents:100,jobBudgetCents:10,maxMs:90000,renderOptions:{fps:6,scale:1}});
+  app=await startServer({...configFromEnv({AI_PROVIDER:provider,KIE_API_KEY:'mock-only',MINIMAX_API_KEY:'minimax-mock-only',MINIMAX_TTS_API_KEY:'voice-mock-only'}),dataDir,port:0,stageQuota:false,liveEnabled:true,dayBudgetCents:100,jobBudgetCents:10,maxMs:90000,renderOptions:{fps:6,scale:1}});
   const base=`http://127.0.0.1:${app.server.address().port}`,token=(await original(base+'/api/session',{method:'POST'}).then(r=>r.json())).token;
   let task;
   if(acceptance){
@@ -43,7 +43,7 @@ export async function verifyKieFlow(root,sourceTask,{provider='kie',acceptance=f
    task=app.tutor.get(report.taskId,owner);
    console.log('MOCK_ACCEPTANCE_RESULT',JSON.stringify({status:report.status,submissions:report.submissionAttempts,audioNonSilent:report.audioNonSilent,playback:report.playback,httpRange:report.httpRange,realPaidCalls:0}));
   }else{
-   const response=await original(base+'/api/tasks',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json','idempotency-key':'kie-flow'},body:JSON.stringify({style:'chalk',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XKqkAAAAASUVORK5CYII='})});assert.equal(response.status,202);
+   const response=await original(base+'/api/tasks',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json','idempotency-key':'kie-flow'},body:JSON.stringify({delivery:'video',exportVideo:true,style:'chalk',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XKqkAAAAASUVORK5CYII='})});assert.equal(response.status,202);
    task=await response.json();for(let i=0;i<90&&['queued','running'].includes(task.status);i++){await delay(1000);task=app.tutor.get(task.id,token);}
   }
   assert.equal(task.status,'completed',task.error);assert.equal(task.mode,'live');assert.equal(task.result.answer,'x = 4');

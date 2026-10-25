@@ -24,7 +24,7 @@ try{
  await page.locator('.photo-preview[data-cropped="true"]').waitFor();
  const cropped=await page.locator('.photo-preview').evaluate(async image=>{await image.decode();return {width:image.naturalWidth,height:image.naturalHeight};});
  assert.ok(cropped.width<400&&cropped.height<640&&cropped.height>cropped.width,JSON.stringify(cropped));
- await page.getByRole('button',{name:'生成视频讲解',exact:true}).click();await page.getByText('真实解题服务尚未开通，可先体验示例讲解。',{exact:true}).waitFor();
+ await page.locator('#submit').click();await page.getByText('真实解题服务尚未开通，可先体验示例讲解。',{exact:true}).waitFor();
  await page.getByRole('button',{name:'体验示例讲解',exact:true}).click();
  await page.getByRole('button',{name:'取消本次生成',exact:true}).click();await page.getByText('任务已取消。',{exact:true}).waitFor();
  await page.getByRole('button',{name:'重新拍题',exact:true}).click();
@@ -33,7 +33,22 @@ try{
  await page.screenshot({path:path.join(dir,'processing.png')});
  await page.getByRole('button',{name:'查看我的视频',exact:true}).click();
  await page.getByRole('button',{name:/一元一次方程/}).first().click();
- await page.locator('video').waitFor({timeout:240000});
+ await page.getByRole('button',{name:'生成配音讲解',exact:true}).waitFor({timeout:240000});
+ const unvoicedId=new URL(page.url()).hash.split('/').pop();
+ const beforeNarration=tutor.db.prepare('SELECT input,result,calls,requests FROM tasks WHERE id=?').get(unvoicedId);
+ assert.equal(JSON.parse(beforeNarration.input).delivery,'lesson');assert.equal(JSON.parse(beforeNarration.result).audioReady,false);
+ assert.equal(beforeNarration.calls,0);assert.equal(beforeNarration.requests,0);
+ assert.equal(fs.existsSync(path.join(dir,'jobs',unvoicedId,'audio.wav')),false);
+ const narrationPending=page.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/tasks/'+unvoicedId+'/narration');
+ await page.getByRole('button',{name:'生成配音讲解',exact:true}).click();
+ const narrationResponse=await narrationPending;assert.equal(narrationResponse.status(),202);
+ const narratedTask=await narrationResponse.json(),narratedId=narratedTask.id;assert.notEqual(narratedId,unvoicedId);
+ await page.waitForURL(base+'/#task/'+narratedId);
+ await page.getByRole('button',{name:'导出 MP4 视频',exact:true}).waitFor({timeout:240000});
+ const exportPending=page.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/tasks/'+narratedId+'/export');
+ await page.getByRole('button',{name:'导出 MP4 视频',exact:true}).click();
+ const exportResponse=await exportPending;assert.equal(exportResponse.status(),202);const exported=await exportResponse.json();assert.notEqual(exported.id,narratedId);
+ await page.waitForURL(base+'/#task/'+exported.id);await page.locator('video').waitFor({timeout:240000});
  assert.match(new URL(page.url()).hash,/^#task\/[a-f0-9-]{36}$/);
  await page.reload();await page.locator('video').waitFor();
  await page.locator('video').evaluate(video=>new Promise((resolve,reject)=>{if(video.readyState>=1)return resolve();video.onloadedmetadata=resolve;video.onerror=()=>reject(new Error('video failed'));}));
@@ -61,14 +76,14 @@ try{
  await page.getByRole('button',{name:'我的',exact:true}).click();await page.getByRole('heading',{name:'我的',exact:true}).waitFor();
  await page.goBack();await page.getByRole('heading',{name:'拍一道题，听懂每一步'}).waitFor();
  assert.deepEqual(issues,[]);
- const token=await page.evaluate(()=>localStorage.getItem('tutor-token'));const tasks=await fetch(base+'/api/tasks',{headers:{authorization:'Bearer '+token}}).then(r=>r.json());const task=tasks.tasks.find(t=>t.status==='completed');
+ const token=await page.evaluate(()=>localStorage.getItem('tutor-token'));const tasks=await fetch(base+'/api/tasks',{headers:{authorization:'Bearer '+token}}).then(r=>r.json());const task=tasks.tasks.find(t=>t.status==='completed'&&t.result?.video);
  const range=await fetch(base+task.result.video,{headers:{Range:'bytes=0-1023'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,1024);
  const probe=JSON.parse((await runProcess('ffprobe',['-v','error','-show_streams','-of','json',path.join(dir,'jobs',task.id,'video.mp4')])).toString());
  assert.ok(probe.streams.some(s=>s.codec_type==='audio'));assert.ok(probe.streams.some(s=>s.codec_type==='video'));
- console.log('SMOKE_RESULT',JSON.stringify({playback,cropped,stages:'crop + rotate -> upload disabled -> sample cancelled -> completed -> reload -> speed + chapter + rewind + download -> history search',httpRange:206,consoleErrors:issues.length,externalPaidCalls:0}));
+ console.log('SMOKE_RESULT',JSON.stringify({playback,cropped,stages:'crop + rotate -> upload disabled -> sample cancelled -> unvoiced lesson -> explicit narration -> explicit MP4 -> reload -> speed + chapter + rewind + download -> history search',defaultTtsCalls:0,httpRange:206,consoleErrors:issues.length,externalPaidCalls:0}));
  // Public sample UI only, never user uploads or credentials. Kept in the existing job log to avoid artifact storage.
  for(const name of ['mobile','crop','processing','result','desktop'])console.log('QA_IMAGE_'+name.toUpperCase()+':'+fs.readFileSync(path.join(dir,name+'.png')).toString('base64'));
- await verifyKieFlow(dir,task.id);
- await verifyKieFlow(dir,task.id,{provider:'minimax'});
- await verifyKieFlow(dir,task.id,{provider:'minimax',acceptance:true});
+ await verifyKieFlow(dir,narratedId);
+ await verifyKieFlow(dir,narratedId,{provider:'minimax'});
+ await verifyKieFlow(dir,narratedId,{provider:'minimax',acceptance:true});
 }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}

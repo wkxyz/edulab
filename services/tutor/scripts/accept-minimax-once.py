@@ -152,7 +152,7 @@ try{
  check(/^[a-f0-9]{64}$/.test(token),'INVALID_SESSION');
  out.submissionAttempts=1;
  task=await api('/api/tasks',{method:'POST',headers:{'idempotency-key':idem},
- body:JSON.stringify({image,text:'请解图片中的方程，并用中文讲解。',style:'whiteboard'})});
+ body:JSON.stringify({image,text:'请解图片中的方程，并用中文讲解。',style:'whiteboard',delivery:'video',exportVideo:true})});
  check(/^[a-f0-9-]{36}$/.test(task.id),'INVALID_TASK_ID');out.taskId=task.id;
  const deadline=Date.now()+335000;
  while(['queued','running'].includes(task.status)&&Date.now()<deadline){

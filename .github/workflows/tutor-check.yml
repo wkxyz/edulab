@@ -1,10 +1,11 @@
 name: Tutor checks
 on:
   push:
-    branches: [codex/ai-video-website]
-    paths: ['services/tutor/**', 'apps/**', 'deploy/tutor/**', '.github/workflows/tutor-check.yml', 'compose.tutor*.yml', '.dockerignore']
+    branches: [main]
+    paths: ['services/tutor/**', 'apps/**', 'deploy/tutor/**', 'skills/**', '.github/workflows/tutor-check.yml', 'compose.tutor*.yml', '.dockerignore']
   pull_request:
-    paths: ['services/tutor/**', 'apps/**', 'deploy/tutor/**', '.github/workflows/tutor-check.yml', 'compose.tutor*.yml', '.dockerignore']
+    branches: [main]
+    paths: ['services/tutor/**', 'apps/**', 'deploy/tutor/**', 'skills/**', '.github/workflows/tutor-check.yml', 'compose.tutor*.yml', '.dockerignore']
 permissions:
   contents: read
 concurrency:
