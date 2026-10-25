@@ -80,6 +80,7 @@ async function openResult(page,task){
   const iframe=page.locator('iframe.lesson-preview').first();await iframe.waitFor({state:'visible',timeout:UI_MS});
   assert.equal(await iframe.getAttribute('sandbox'),'allow-scripts');
   assert.equal(await page.locator('video').count(),0,'preview-first tasks must not invent a video URL');
+  if(task.result.format!=='interactive'){const box=await iframe.boundingBox();assert.ok(box.height<=box.width*.75+70,'playback preview must fit the scene and controls without a large empty region');}
   await page.getByRole('button',{name:'放大观看',exact:true}).click();
   const frame=await (await iframe.elementHandle()).contentFrame();assert.ok(frame);
   await frame.waitForFunction(()=>document.readyState==='complete',null,{timeout:UI_MS});
