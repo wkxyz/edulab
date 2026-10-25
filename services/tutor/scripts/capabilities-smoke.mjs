@@ -172,7 +172,14 @@ async function unvoicedProof(frame,task){
   assert.equal(await frame.locator('audio[src],audio source[src]').count(),0,'default lesson must not load narration');
   const names=fs.readdirSync(path.join(tempRoot,'jobs',task.id));
   assert.equal(names.some(name=>/^speech-\d+\.wav$/.test(name)||name==='audio.wav'||name==='video.mp4'),false,'default lesson must not synthesize audio or MP4');
-  return {defaultTtsCalls:0,defaultMp4Renders:0,unnarratedPreview:true};
+  const visual=frame.locator(animated?'#c':'#stage'),before=await visual.screenshot(),timeBefore=await frame.locator('#tm').innerText();
+  await frame.locator('#play').click();
+  await frame.waitForFunction(previous=>document.querySelector('#tm').textContent!==previous,timeBefore,{timeout:7000});
+  await frame.locator('#play').click();
+  await seekPreview(frame,.5);await frame.page().waitForTimeout(200);
+  const after=await visual.screenshot();assert.notDeepEqual(after,before,'unvoiced preview play/seek must change visible lesson pixels');
+  assert.notEqual(await frame.locator('#tm').innerText(),timeBefore,'unvoiced preview must expose working progress without an audio source');
+  return {defaultTtsCalls:0,defaultMp4Renders:0,unnarratedPreview:true,silentPlayed:true,silentSeeked:true,silentPixelsChanged:true};
 }
 
 try{
