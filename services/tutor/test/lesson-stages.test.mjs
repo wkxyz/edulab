@@ -11,6 +11,7 @@ import {validateLesson} from '../validation.mjs';
 import {validateAnimation,buildAnimatedPreview} from '../animated-video.mjs';
 import {sourceDirectory,readFixedArtifact,readSourceLesson,copyExportArtifacts,interactiveNarrationPlan,safeNarrationText} from '../lesson-stages.mjs';
 import {compileNarratedBoard,makeNarratedBoardPage} from '../narrated-board.mjs';
+import {makeStandalonePreview} from '../artifact-assets.mjs';
 
 const capabilities=['math-video','physics-video','chem-video','solid-geometry','analytic-geometry','chem-reaction'];
 const interactive=()=>({format:'interactive',title:'已核对的空间几何',problem:'保留全部原题条件：正方体棱长为二，点 E 为 AB 中点，求点到平面的距离。',answer:'\\frac{2\\sqrt{22}}{11}',steps:[
@@ -200,4 +201,15 @@ test('math speech keeps explanatory prose and refers complete formulas to the di
  assert.match(speech,/计算斜边/);assert.match(speech,/利用勾股定理可得/);assert.match(speech,/因此可以求出斜边长度/);assert.match(speech,/公式.*请看屏幕/);assert.doesNotMatch(speech,/\$|\\frac|\^/);
  assert.ok(safeNarrationText('完整条件。'.repeat(200),'说明条件').length<=130);
  assert.equal(safeNarrationText('根据题设建立空间坐标系。'),'根据题设建立空间坐标系。');
+});
+
+
+test('interactive narration board passes the actual self-contained asset gate with embedded audio',async t=>{
+ const x=fixture(t),source=stored(x,interactive()),plan=interactiveNarrationPlan(interactive());
+ fs.writeFileSync(path.join(source.dir,'audio.wav'),wav());
+ const timeline=compileNarratedBoard(plan,plan.sections.map((_,i)=>({file:path.join(source.dir,'speech-'+i+'.wav'),duration:2})));
+ const html=await makeStandalonePreview(makeNarratedBoardPage(plan,timeline),{kind:'math-video',jobDir:source.dir});
+ assert.match(html,/data:audio\/wav;base64,/);assert.match(html,/Content-Security-Policy/);assert.match(html,/connect-src 'none'/);
+ assert.doesNotMatch(html,/src="audio\.wav"|href="file:/);assert.doesNotMatch(html,/speech-\d+\.wav/);
+ assert.ok(html.includes(plan.meta.problem));assert.match(html,/class="katex"/);
 });
