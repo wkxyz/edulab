@@ -18,7 +18,7 @@ export async function startServer(options={}){
     else if(req.method!=='GET')fail('NOT_FOUND',404);
     return json(res,200,{stopped:tutor.isStopped(),running:tutor.running.size,queued:tutor.db.prepare("SELECT count(*) n FROM tasks WHERE status='queued'").get().n});
    }
-   if(p==='/api/health'&&req.method==='GET')return json(res,200,{liveEnabled:config.liveEnabled&&!tutor.liveLimitReached()&&config.configured&&!tutor.isStopped()&&config.dayBudgetCents>0&&config.jobBudgetCents>0,liveLimitReached:tutor.liveLimitReached(),stopped:tutor.isStopped(),sampleAvailable:['darwin','linux'].includes(process.platform),maxImageBytes:4194304});
+   if(p==='/api/health'&&req.method==='GET')return json(res,200,{...tutor.health(),sampleAvailable:['darwin','linux'].includes(process.platform),maxImageBytes:4194304});
    if(p==='/api/capabilities'&&req.method==='GET')return json(res,200,{capabilities:CAPABILITIES.map(({id,title,kind,subject,description,random,styles})=>({id,title,kind,subject,description,random,styles}))});
    if(p==='/api/session'&&req.method==='POST'){
     if(tutor.isStopped())fail('STOPPED',503);
@@ -44,8 +44,8 @@ export async function startServer(options={}){
     if(!/^[a-f0-9]{64}$/.test(token)||!tutor.db.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(token,Date.now()))fail('INVALID_SESSION',401);
     if(p==='/api/tasks'&&req.method==='GET')return json(res,200,{tasks:tutor.list(token)});
     if(p==='/api/tasks'&&req.method==='POST'){if(req.headers['content-type']?.split(';')[0]!=='application/json')fail('INVALID_CONTENT_TYPE');return json(res,202,tutor.create(await body(req),token,req.headers['idempotency-key']));}
-    const match=/^\/api\/tasks\/([a-f0-9-]{36})(\/cancel|\/export)?$/.exec(p);
-    if(match){if(match[2]==='/cancel'&&req.method==='POST')return json(res,200,tutor.cancel(match[1],token));if(match[2]==='/export'&&req.method==='POST')return json(res,202,tutor.createExport(match[1],token));if(!match[2]&&req.method==='GET'){const task=tutor.get(match[1],token);if(!task)fail('NOT_FOUND',404);return json(res,200,task);}}
+    const match=/^\/api\/tasks\/([a-f0-9-]{36})(\/cancel|\/export|\/narration)?$/.exec(p);
+    if(match){if(match[2]==='/narration'&&req.method==='POST'){req.resume();return json(res,202,tutor.createNarration(match[1],token));}if(match[2]==='/cancel'&&req.method==='POST')return json(res,200,tutor.cancel(match[1],token));if(match[2]==='/export'&&req.method==='POST')return json(res,202,tutor.createExport(match[1],token));if(!match[2]&&req.method==='GET'){const task=tutor.get(match[1],token);if(!task)fail('NOT_FOUND',404);return json(res,200,task);}}
     fail('NOT_FOUND',404);
    }
    if(!['GET','HEAD'].includes(req.method))fail('NOT_FOUND',404);
