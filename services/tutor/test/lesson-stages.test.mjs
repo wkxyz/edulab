@@ -246,3 +246,17 @@ test('each actual silent animation engine plays and seeks on its clock without a
   assert.match(el('tm').textContent,/\d+:\d+ \/ \d+:\d+/);
  }
 });
+
+
+test('narrated chemistry answer displays a typeset reaction with an annotated arrow',()=>{
+ const source=interactive();
+ source.answer=String.raw`\text{CH}_4 + 2\,\text{O}_2 \xrightarrow{\text{点燃}} \text{CO}_2 + 2\,\text{H}_2\text{O}`;
+ const plan=interactiveNarrationPlan(source);
+ const timeline=compileNarratedBoard(plan,plan.sections.map((_,i)=>({file:'speech-'+i+'.wav',duration:2})));
+ const page=makeNarratedBoardPage(plan,timeline);
+ const answer=page.slice(page.indexOf('<div id="answer"'),page.indexOf('<div id="cap"'));
+ assert.match(answer,/class="katex-html"/);
+ assert.doesNotMatch(answer,/class="katex-error"/);
+ assert.ok(answer.includes('点燃'));
+ assert.equal(plan.meta.answer,source.answer);
+});
