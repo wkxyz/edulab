@@ -137,7 +137,7 @@ test('pending MP4 requests block repeats and recover after export errors',async(
 
 test('closed paid stages and exhausted cumulative budget still allow sample narration and render-only export',async()=>{
   const h=harness({live:false,healthData:{stages:{lesson:{available:false,reason:'PROJECT_BUDGET_EXHAUSTED',reserveCents:100},narration:{available:false,reason:'NARRATION_LIMIT',reserveCents:200}},budget:{currency:'CNY',kind:'cumulative-reservation',limitCents:2000,reservedCents:2000,remainingCents:0}}});
-  await h.settle();assert.match(h.app.innerHTML,/项目累计预留/);assert.match(h.app.innerHTML,/¥20.00/);assert.match(h.app.innerHTML,/供应商实际账单/);
+  await h.settle();const status=h.document.querySelector('[data-service-status]').innerHTML;assert.match(status,/项目累计预留/);assert.match(status,/¥20.00/);assert.match(status,/供应商实际账单/);
   h.document.querySelector('#problem').oninput({target:{value:'2x + 3 = 11'}});await h.click('#submit');assert.equal(h.requests.length,0);assert.match(h.document.querySelector('#error').textContent,/项目累计预留额度已满/);
   await h.click('#sample');await h.click('#narrate-result');await h.click('#export-result');
   assert.equal(h.requests.length,1);assert.deepEqual(h.derivedRequests.map(r=>r.action),['narration','export']);
