@@ -28,7 +28,7 @@ test('HTTP session, real configuration failure, owner boundary and cancellation'
 });
 test('public health stops advertising paid generation after the cumulative trial is used',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-quota-health-'));
- const {server,tutor}=await mod.startServer({dataDir:dir,port:0,autoRun:false,liveEnabled:true,configured:true,liveTaskLimit:1,dayBudgetCents:1000,jobBudgetCents:1000});
+ const {server,tutor}=await mod.startServer({dataDir:dir,port:0,autoRun:false,stageQuota:false,liveEnabled:true,configured:true,liveTaskLimit:1,dayBudgetCents:1000,jobBudgetCents:1000});
  const health=async()=>fetch(`http://127.0.0.1:${server.address().port}/api/health`).then(r=>r.json());
  try{
   assert.equal((await health()).liveEnabled,true);
