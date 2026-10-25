@@ -85,6 +85,10 @@ export class Tutor {
    const json=JSON.stringify(input),old=this.db.prepare('SELECT * FROM tasks WHERE owner=? AND idem=?').get(owner,idem);
    if(old){
     let matches=old.input===json;
+    if(exportSource&&old.mode==='export'){
+     const prior=JSON.parse(old.input);
+     matches=prior.exportOf===input.exportOf&&(prior.capability||'math-video')===input.capability&&(prior.style||'whiteboard')===input.style&&JSON.stringify(prior.sourceResult)===JSON.stringify(input.sourceResult);
+    }
     if(!exportSource&&!narrationSource){
      const prior=JSON.parse(old.input);
      matches=JSON.stringify(validateInput(prior))===json;
