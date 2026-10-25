@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Optional 40-hex SHA to deploy (default: this workflow ref)
+        description: "Optional 40-hex SHA to deploy (default: this workflow ref)"
         required: false
         type: string
 
