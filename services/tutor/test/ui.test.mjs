@@ -50,3 +50,41 @@ test('video times remain readable for unloaded media and long lessons', () => {
   assert.equal(ui.formatTime(-10),'0:00');
   assert.equal(ui.formatTime(125.9),'2:05');
 });
+
+test('silent video lessons finish without claiming speech or MP4 work', () => {
+  const task={capability:'math-video',delivery:'lesson',status:'running',stage:'rendering'};
+  assert.deepEqual(ui.taskSteps(task),['识别题目','解题与复核','制作讲解网页']);
+  assert.equal(ui.taskPhase(task).index,2);assert.match(ui.taskPhase(task).label,/讲解网页/);
+  assert.equal(ui.resultFormat({result:{format:'lesson',audioReady:false}}),'lesson');
+});
+
+test('narration of an interactive source describes reuse and stops before MP4', () => {
+  const task={mode:'narration',capability:'solid-geometry',delivery:'video',status:'queued',stage:'queued'};
+  assert.deepEqual(ui.taskSteps(task),['生成配音','制作配音网页']);
+  assert.match(ui.taskPhase(task).label,/等待生成配音/);
+  assert.match(ui.taskPhase({...task,status:'running',stage:'voicing'}).detail,/无需再次解题/);
+  assert.equal(ui.taskPhase({...task,status:'running',stage:'rendering'}).index,1);
+  assert.match(ui.taskPhase({...task,status:'running',stage:'rendering'}).detail,/MP4 可稍后/);
+  assert.deepEqual(ui.taskSteps({mode:'export'}),['导出视频']);
+});
+
+test('result actions distinguish silent, narrated, running and legacy results', () => {
+  for(const format of ['lesson','interactive']){
+    const task={status:'completed',result:{format,audioReady:false,videoReady:false}};
+    assert.equal(ui.hasNarration(task),false);assert.deepEqual(ui.resultActions(task),{narrate:true,exportVideo:false});
+    assert.deepEqual(ui.resultActions({...task,status:'running'}),{narrate:false,exportVideo:false});
+  }
+  const narrated={status:'completed',result:{format:'video',audioReady:true,videoReady:false}};
+  assert.deepEqual(ui.resultActions(narrated),{narrate:false,exportVideo:true});
+  assert.deepEqual(ui.resultActions({...narrated,result:{format:'video',preview:'/old.html'}}),{narrate:false,exportVideo:true});
+  assert.deepEqual(ui.resultActions({...narrated,result:{video:'/old.mp4'}}),{narrate:false,exportVideo:false});
+  assert.deepEqual(ui.resultActions({...narrated,result:{format:'video',audioReady:false}}),{narrate:true,exportVideo:false});
+});
+
+test('budget copy shows cumulative admission reservations with historical amounts', () => {
+  const budget={currency:'CNY',kind:'cumulative-reservation',limitCents:2000,reservedCents:2000,remainingCents:0};
+  const copy=ui.projectBudgetText(budget);
+  assert.match(copy,/累计预留 ¥20.00 \/ ¥20.00/);assert.match(copy,/可预留 ¥0.00/);
+  assert.match(copy,/不代表供应商实际账单/);assert.doesNotMatch(copy,/账户余额|已花费|每日/);
+  assert.equal(ui.projectBudgetText(null),'');assert.equal(ui.projectBudgetText({limitCents:NaN}),'');
+});

@@ -25,19 +25,19 @@ export const CAPABILITIES = [
   },
   {
     id: 'math-video', title: '数学视频', kind: 'video', subject: 'math',
-    description: '用动态板书和语音，分步讲清数学题的解法。',
+    description: '先用动态板书分步讲清数学解法，再按需生成配音。',
     sampleLabel: '一元一次方程', sampleProblem: '2x + 3 = 11',
     random: false, styles: [...boards, 'handdrawn'],
   },
   {
     id: 'physics-video', title: '物理视频', kind: 'video', subject: 'physics',
-    description: '结合示意图与语音，讲清物理模型、公式和推导。',
+    description: '先用示意图讲清物理模型、公式与推导，再按需生成配音。',
     sampleLabel: '牛顿第二定律与位移', sampleProblem: '质量 2 千克的物体受到 6 牛的水平合力，从静止运动 2 秒，求加速度和位移。',
     random: false, styles: ['chalk'],
   },
   {
     id: 'chem-video', title: '化学视频', kind: 'video', subject: 'chemistry',
-    description: '结合反应式与板书，分步讲解化学计算和反应规律。',
+    description: '先用反应式与板书讲解化学计算和反应规律，再按需生成配音。',
     sampleLabel: '甲烷燃烧反应的配平', sampleProblem: '配平甲烷燃烧反应，并说明反应前后各元素的原子如何守恒。',
     random: false, styles: ['chalk'],
   },

@@ -62,7 +62,8 @@ export async function captureInteractiveCover(outDir,ctx){
   await page.screenshot({path:path.join(outDir,'cover.png')});return {coverReady:true};
  });
 }
-export async function renderStoredPreview(outDir,ctx,{fps=15,exportVideo=true}={}){
+export async function renderStoredPreview(outDir,ctx,{fps=15,exportVideo=true,narration=true}={}){
+ if(exportVideo&&!narration)fail('EXPORT_NOT_AVAILABLE');
  const tl=JSON.parse(fs.readFileSync(path.join(outDir,'timeline.json'),'utf8'));
  if(!Number.isFinite(tl.duration)||tl.duration<=0||tl.duration>240)fail('LESSON_TOO_LONG');
  if(!Number.isInteger(fps)||fps<1||fps>30)fail('RENDER_FAILED');
@@ -84,19 +85,22 @@ export async function renderStoredPreview(outDir,ctx,{fps=15,exportVideo=true}={
   if(exportVideo){
    await runProcess(process.env.FFMPEG||'ffmpeg',['-v','error','-y','-framerate',String(fps),'-i',path.join(tmp,'%05d.jpg'),'-i',path.join(outDir,'audio.wav'),'-c:v','libx264','-preset','fast','-crf','23','-pix_fmt','yuv420p','-c:a','aac','-b:a','96k','-shortest','-movflags','+faststart',path.join(outDir,'video.mp4')],{signal:ctx.signal});
   }
-  ctx.guard();return {duration:tl.duration,segments:tl.segments||tl.scenes.map(s=>({title:s.title,at:s.at??s.start})),videoReady:exportVideo,previewReady:true,subtitlesReady:true,coverReady:true};
+  ctx.guard();return {duration:tl.duration,segments:tl.segments||tl.scenes.map(s=>({title:s.title,at:s.at??s.start})),videoReady:exportVideo,audioReady:narration,previewReady:true,subtitlesReady:narration,coverReady:true,previewEngine:mode};
  });}finally{if(tmp)fs.rmSync(tmp,{recursive:true,force:true});}
 }
 export async function renderLesson(lesson,clips,outDir,ctx,options={}){
- ctx.guard();const timeline=compile(expandIntro(lesson),clips);
+ ctx.guard();const narrated=options.narration!==false,expanded=expandIntro(lesson);
+ const voices=narrated?clips:expanded.scenes.flatMap(s=>s.beats).map(b=>({duration:Math.max(2,Math.min(18,Array.from(b.speak||b.say||'').length/5)),words:[]}));
+ const timeline=compile(expanded,voices);
+ if(!narrated){timeline.audio=[];timeline.preview_only=true;}
  if(timeline.warnings.length)fail('INVALID_FORMULA');if(timeline.duration>240)fail('LESSON_TOO_LONG');
  timeline.captions=timeline.captions.flatMap(c=>{
   const chars=Array.from(c.text),chunks=[];for(let i=0;i<chars.length;i+=26){const count=Math.min(26,chars.length-i);chunks.push({...c,text:chars.slice(i,i+count).join(''),at:c.at+(c.end-c.at)*i/chars.length,end:c.at+(c.end-c.at)*(i+count)/chars.length,words:[]});}return chunks;
  });
- await mixTimelineAudio(timeline,outDir,ctx);
- let html=makePage({...timeline,audio:[]});
+ if(narrated)await mixTimelineAudio(timeline,outDir,ctx);
+ let html=makePage({...timeline,audio:[]},{audio:narrated?'audio.wav':null});
  html=html.replace('</head>','<style>body,.stage,.ln,.ct{font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif!important}.stage.nofig .col{font-size:80px;line-height:1.4}.stage.nofig .ln.title{font-size:52px}.stage.nofig .cap{font-size:40px;max-width:1180px}</style></head>');
- fs.writeFileSync(path.join(outDir,'preview.html'),html);fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));fs.writeFileSync(path.join(outDir,'subtitles.srt'),toSrt(timeline.captions));
+ fs.writeFileSync(path.join(outDir,'preview.html'),html);fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));if(narrated)fs.writeFileSync(path.join(outDir,'subtitles.srt'),toSrt(timeline.captions));
  await publicPreview(outDir,'math-video',ctx);
- return renderStoredPreview(outDir,ctx,options);
+ return renderStoredPreview(outDir,ctx,{...options,narration:narrated,exportVideo:narrated&&options.exportVideo!==false});
 }

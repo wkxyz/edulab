@@ -256,7 +256,7 @@ export function compileAnimation(value,clips){
 const safeJSON=x=>JSON.stringify(x).replaceAll('<','\\u003c').replaceAll('\u2028','\\u2028').replaceAll('\u2029','\\u2029');
 const escapeHTML=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 let fontCSS;
-export function makeAnimatedPage(value,timeline){
+export function makeAnimatedPage(value,timeline,{narration=true}={}){
  const spec=validateAnimation(value,value.capability);const folder={'math-video':'edu-math-video','physics-video':'edu-physics-video','chem-video':'edu-chem-video'}[spec.capability];
  const read=name=>fs.readFileSync(path.join(UPSTREAM,folder,'template',name),'utf8');
  const extras=spec.capability==='physics-video'?read('phys.js'):spec.capability==='chem-video'?read('chem.js'):'';
@@ -265,14 +265,16 @@ export function makeAnimatedPage(value,timeline){
  // The browser only needs the mixed audio. Keep server-local clip paths out of
  // the delivered HTML; the separate timeline.json still supplies the mixer.
  const browserTimeline={...timeline,audio:[]};
- return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHTML(spec.meta.title)}</title><style>${fontCSS}\nhtml,body{margin:0;background:#152431;color:#eee;font-family:system-ui,sans-serif}canvas{display:block;width:min(100vw,calc((100vh - 52px)*16/9));height:auto;margin:auto;cursor:pointer}#bar{display:flex;align-items:center;justify-content:center;gap:12px;height:52px}#seek{width:55%}body.render #bar{display:none}body.render canvas{width:100vw;height:100vh}</style></head><body><canvas id="c" width="1920" height="1080"></canvas><div id="bar"><button id="play" type="button">播放</button><input aria-label="播放进度" id="seek" type="range" min="0" max="1000" value="0"><span id="tm"></span></div><audio id="au" src="audio.wav" preload="metadata"></audio><script>window.TIMELINE=${safeJSON(browserTimeline)};window.ANIMATION_SPEC=${safeJSON(spec)};</script><script>${read('engine.js')}</script><script>${extras}</script><script>${runtime}</script><script>boot();</script></body></html>`;
+ return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHTML(spec.meta.title)}</title><style>${fontCSS}\nhtml,body{margin:0;background:#152431;color:#eee;font-family:system-ui,sans-serif}canvas{display:block;width:min(100vw,calc((100vh - 52px)*16/9));height:auto;margin:auto;cursor:pointer}#bar{display:flex;align-items:center;justify-content:center;gap:12px;height:52px}#seek{width:55%}body.render #bar{display:none}body.render canvas{width:100vw;height:100vh}</style></head><body><canvas id="c" width="1920" height="1080"></canvas><div id="bar"><button id="play" type="button">播放</button><input aria-label="播放进度" id="seek" type="range" min="0" max="1000" value="0"><span id="tm"></span></div><audio id="au"${narration?' src="audio.wav"':''} preload="metadata"></audio><script>window.TIMELINE=${safeJSON(browserTimeline)};window.ANIMATION_SPEC=${safeJSON(spec)};</script><script>${read('engine.js')}</script><script>${extras}</script><script>${runtime}</script><script>boot();</script></body></html>`;
 }
 
 function srt(timeline){const stamp=s=>{const ms=Math.round(s*1000);return `${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')},${String(ms%1000).padStart(3,'0')}`;};return timeline.captions.map((c,i)=>`${i+1}\n${stamp(c.at)} --> ${stamp(c.end)}\n${c.text}${c.en?'\n'+c.en:''}\n`).join('\n');}
-export async function buildAnimatedPreview(value,clips,outDir,ctx){
- ctx.guard();const spec=validateAnimation(value,value.capability),timeline=compileAnimation(spec,clips);fs.mkdirSync(outDir,{recursive:true});
- fs.writeFileSync(path.join(outDir,'preview.html'),makeAnimatedPage(spec,timeline));fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));fs.writeFileSync(path.join(outDir,'subtitles.srt'),srt(timeline));ctx.guard();
- return {format:'video',title:spec.meta.title,problem:spec.meta.problem,answer:spec.meta.answer,steps:spec.scenes.map(s=>({title:s.title,description:s.lines.map(l=>l.zh).join('')})),duration:timeline.duration,segments:timeline.segments};
+export async function buildAnimatedPreview(value,clips,outDir,ctx,{narration=true}={}){
+ ctx.guard();const spec=validateAnimation(value,value.capability);
+ const voices=narration?clips:spec.scenes.flatMap(s=>s.lines).map(l=>({file:'silent-preview',duration:Math.max(2,Math.min(18,Array.from(l.tts).length/5)),words:[]}));
+ const timeline=compileAnimation(spec,voices);if(!narration){timeline.audio=[];timeline.preview_only=true;}fs.mkdirSync(outDir,{recursive:true});
+ fs.writeFileSync(path.join(outDir,'preview.html'),makeAnimatedPage(spec,timeline,{narration}));fs.writeFileSync(path.join(outDir,'timeline.json'),JSON.stringify(timeline));if(narration)fs.writeFileSync(path.join(outDir,'subtitles.srt'),srt(timeline));ctx.guard();
+ return {format:narration?'video':'lesson',audioReady:narration,videoReady:false,subtitlesReady:narration,previewEngine:'animation',title:spec.meta.title,problem:spec.meta.problem,answer:spec.meta.answer,steps:spec.scenes.map(s=>({title:s.title,description:s.lines.map(l=>l.zh).join('')})),duration:timeline.duration,segments:timeline.segments};
 }
 
 export function animationInstructions(capability){
