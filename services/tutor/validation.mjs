@@ -9,7 +9,10 @@ export function validateInput(input){
  const style=input.style||'whiteboard';
  if(!['chalk','lab','whiteboard','notebook','handdrawn'].includes(style)||style==='handdrawn'&&capability!=='math-video')fail('INVALID_STYLE');
  if(input.exportVideo!==undefined&&typeof input.exportVideo!=='boolean')fail('INVALID_INPUT');
- const settings={capability,style,...(entry.kind==='video'?{exportVideo:input.exportVideo!==false}:{})};
+ const delivery=input.delivery??'lesson';
+ if(!['lesson','video'].includes(delivery))fail('INVALID_DELIVERY');
+ if(entry.kind==='interactive'&&delivery==='video')fail('INVALID_DELIVERY');
+ const settings={capability,style,delivery,...(entry.kind==='video'?{exportVideo:delivery==='video'&&input.exportVideo===true}:{})};
  if(input.sampleId){
   if(!['equation','default','random'].includes(input.sampleId)||input.sampleId==='equation'&&capability!=='math-video'||input.sampleId==='random'&&entry.kind!=='interactive')fail('INVALID_SAMPLE');
   return {sampleId:input.sampleId,...settings};
