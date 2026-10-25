@@ -224,6 +224,10 @@ try{
     assert.equal(normalizeMath(narrated.result.answer),normalizeMath(task.result.answer),'narration must preserve the checked source answer');
     await validArtifact(narrated.result.subtitles,{type:/text\/plain/,attachment:true});
     const narratedFrame=await openResult(page,narrated),narrationProof=await videoPreviewProof(page,narratedFrame,example);
+    if(example.capability==='chem-reaction'){
+      assert.ok(await narratedFrame.locator('#answer .katex-html').count()>0,'the chemical answer must be visibly typeset rather than raw TeX');
+      assert.equal(await narratedFrame.locator('#answer .katex-error').count(),0,'the checked reaction must have no formula rendering error');
+    }
     const repeated=await api('/api/tasks/'+task.id+'/narration',{method:'POST'});assert.equal(repeated.id,narrated.id);assert.equal(repeated.status,'completed');
     assert.deepEqual(tutor.db.prepare('SELECT attempts,calls,requests,reserve FROM tasks WHERE id=?').get(task.id),before);
     if(example.capability==='math-video'&&!example.handdrawn)screenshots.set('NARRATED_PREVIEW',await page.screenshot());

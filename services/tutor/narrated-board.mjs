@@ -15,7 +15,7 @@ function mathText(value){
  const options={throwOnError:false,trust:false,strict:'ignore',maxExpand:200,maxSize:30};
  // Checked interactive answers often contain a complete undelimited TeX
  // expression. Typeset those with the same trusted KaTeX options.
- if(!value.includes('$')&&!/\\[([]/.test(value)&&/\\(?:frac|sqrt|left|right|sin|cos|tan|pi|cdot|times|alpha|beta|theta|in|le|ge)\b/.test(value)){
+ if(!value.includes('$')&&!/\\[([]/.test(value)&&/\\[a-zA-Z]+\b/.test(value)){
   try{return katex.renderToString(value,{...options,throwOnError:true});}catch{}
  }
  const pattern=/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g;
