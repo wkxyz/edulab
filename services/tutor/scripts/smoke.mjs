@@ -29,7 +29,7 @@ try{
  await page.locator('.photo-preview[data-cropped="true"]').waitFor();
  const cropped=await page.locator('.photo-preview').evaluate(async image=>{await image.decode();return {width:image.naturalWidth,height:image.naturalHeight};});
  assert.ok(cropped.width<400&&cropped.height<640&&cropped.height>cropped.width,JSON.stringify(cropped));
- await page.locator('#submit').click();await page.getByText('真实解题服务尚未开通，可先体验示例讲解。',{exact:true}).waitFor();
+ await page.locator('#submit').click();await page.locator('#error').waitFor();assert.equal(await page.locator('#error').innerText(),'真实解题服务尚未开通，可先体验示例讲解。');
  await page.getByRole('button',{name:'体验示例讲解',exact:true}).click();
  await page.getByRole('button',{name:'取消本次生成',exact:true}).click();await page.getByText('任务已取消。',{exact:true}).waitFor();
  await page.getByRole('button',{name:'重新拍题',exact:true}).click();

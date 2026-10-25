@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
+import vm from 'node:vm';
 import {createRunner} from '../runner.mjs';
 import {sampleLesson} from '../sample.mjs';
 import {animationSample} from '../capability-samples.mjs';
@@ -212,4 +213,36 @@ test('interactive narration board passes the actual self-contained asset gate wi
  assert.match(html,/data:audio\/wav;base64,/);assert.match(html,/Content-Security-Policy/);assert.match(html,/connect-src 'none'/);
  assert.doesNotMatch(html,/src="audio\.wav"|href="file:/);assert.doesNotMatch(html,/speech-\d+\.wav/);
  assert.ok(html.includes(plan.meta.problem));assert.match(html,/class="katex"/);
+});
+
+
+test('each actual silent animation engine plays and seeks on its clock without audio access',async t=>{
+ const x=fixture(t);
+ for(const capability of ['math-video','physics-video','chem-video']){
+  const out=path.join(x.dir,'clock-'+capability);
+  await buildAnimatedPreview(validateAnimation(animationSample(capability),capability),[],out,context(),{narration:false});
+  const html=fs.readFileSync(path.join(out,'preview.html'),'utf8'),calls=[],frames=[],elements=new Map();let now=0;
+  const draw=new Proxy({measureText:value=>({width:Array.from(String(value)).length*20}),createLinearGradient:()=>({addColorStop(){}}),createRadialGradient:()=>({addColorStop(){}})},{get:(target,key)=>key in target?target[key]:(...args)=>calls.push([String(key),...args]),set:(target,key,value)=>(target[key]=value,true)});
+  const el=id=>{
+   if(!elements.has(id))elements.set(id,{id,width:1920,height:1080,value:0,style:{},classList:{add(){}},getContext:()=>draw,getAttribute:()=>null,blur(){},pause(){}});
+   return elements.get(id);
+  };
+  const audio=el('au');
+  audio.play=()=>{throw new Error('SILENT_PREVIEW_CALLED_AUDIO_PLAY');};
+  Object.defineProperty(audio,'currentTime',{get(){throw new Error('SILENT_PREVIEW_READ_AUDIO_TIME');},set(){throw new Error('SILENT_PREVIEW_SOUGHT_AUDIO');}});
+  const sandbox={window:null,document:{getElementById:el,createElement:()=>el('background'),fonts:{load:()=>Promise.resolve([]),ready:Promise.resolve()},body:el('body')},Image:class{src='';complete=true;},location:{search:''},requestAnimationFrame:fn=>frames.push(fn),addEventListener(){},console,performance:{now:()=>now}};
+  sandbox.window=sandbox;const host=vm.createContext(sandbox);
+  for(const script of html.matchAll(/<script>([\s\S]*?)<\/script>/g))vm.runInContext(script[1],host,{timeout:2000});
+  await host.ready;
+  const before=JSON.stringify(calls.slice(-100));
+  el('play').onclick();now=3000;
+  assert.ok(frames.length,capability+' did not start its animation loop');frames.shift()(now);
+  assert.ok(Number(el('seek').value)>0,capability+' silent play did not advance');
+  assert.notEqual(JSON.stringify(calls.slice(-100)),before,capability+' silent playback did not redraw its frame');
+  const played=JSON.stringify(calls.slice(-100));
+  el('seek').value=800;el('seek').oninput();
+  assert.ok(Math.abs(Number(el('seek').value)-800)<0.001,capability+' silent seek did not retain its target');
+  assert.notEqual(JSON.stringify(calls.slice(-100)),played,capability+' silent seek did not change its draw commands');
+  assert.match(el('tm').textContent,/\d+:\d+ \/ \d+:\d+/);
+ }
 });
