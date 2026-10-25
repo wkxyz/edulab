@@ -25,7 +25,7 @@ function harness({live=true,healthData={}}={}){
     querySelectorAll(selector){return document.querySelectorAll(selector);}
     prepend(node){nodes.unshift(node);}
   }
-  function parse(html){return [...html.matchAll(/<([a-z][a-z0-9-]*)\b([^>]*)>/g)].map(([,tag,attributes])=>{const attrs=Object.fromEntries([...attributes.matchAll(/([\w-]+)="([^"]*)"/g)].map(([,key,value])=>[key,value]));return new Element(tag,attrs);});}
+  function parse(html){return [...html.matchAll(/<([a-z][a-z0-9-]*)\b([^>]*)>/g)].map(([,tag,attributes])=>{const attrs=Object.fromEntries([...attributes.matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map(([,key,value])=>[key,value??'']));return new Element(tag,attrs);});}
   const app=new Element('main',{id:'app'}),shell=new Element('div'),navigation=new Element('nav');
   const navs=['capture','videos','profile'].map(value=>new Element('button',{'data-nav':value}));
   const document={hidden:false,querySelector(selector){if(selector==='#app')return app;if(selector==='.shell')return shell;if(selector==='nav')return navigation;return this.querySelectorAll(selector)[0]||null;},querySelectorAll(selector){if(selector==='[data-nav]')return navs;if(selector.startsWith('#'))return nodes.filter(node=>node.id===selector.slice(1));if(selector.startsWith('.'))return nodes.filter(node=>(node.attrs.class||'').split(' ').includes(selector.slice(1)));const attr=/^\[([^=\]]+)(?:="([^"]+)")?\]$/.exec(selector);if(attr)return nodes.filter(node=>attr[1] in node.attrs&&(attr[2]===undefined||node.attrs[attr[1]]===attr[2]));return nodes.filter(node=>selector.split(',').includes(node.tag));},addEventListener(){},createElement(tag){return new Element(tag);}};
@@ -137,7 +137,9 @@ test('pending MP4 requests block repeats and recover after export errors',async(
 
 test('closed paid stages and exhausted cumulative budget still allow sample narration and render-only export',async()=>{
   const h=harness({live:false,healthData:{stages:{lesson:{available:false,reason:'PROJECT_BUDGET_EXHAUSTED',reserveCents:100},narration:{available:false,reason:'NARRATION_LIMIT',reserveCents:200}},budget:{currency:'CNY',kind:'cumulative-reservation',limitCents:2000,reservedCents:2000,remainingCents:0}}});
-  await h.settle();const status=h.document.querySelector('[data-service-status]').innerHTML;assert.match(status,/项目累计预留/);assert.match(status,/¥20.00/);assert.match(status,/供应商实际账单/);
+  await h.settle();assert.equal(h.location.hash,'#capture');
+  const statusNode=h.document.querySelector('[data-service-status]');assert.ok(statusNode,'capture must expose the service status');
+  const status=statusNode.innerHTML;assert.match(status,/项目累计预留/);assert.match(status,/¥20.00/);assert.match(status,/可预留 ¥0.00/);assert.match(status,/项目累计预留额度已满/);assert.match(status,/真实配音阶段次数已用完/);assert.match(status,/供应商实际账单/);
   h.document.querySelector('#problem').oninput({target:{value:'2x + 3 = 11'}});await h.click('#submit');assert.equal(h.requests.length,0);assert.match(h.document.querySelector('#error').textContent,/项目累计预留额度已满/);
   await h.click('#sample');await h.click('#narrate-result');await h.click('#export-result');
   assert.equal(h.requests.length,1);assert.deepEqual(h.derivedRequests.map(r=>r.action),['narration','export']);
