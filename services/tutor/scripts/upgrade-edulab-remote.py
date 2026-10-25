@@ -26,7 +26,7 @@ import urllib.request
 
 HOST = 'root@43.173.94.201'
 ROOT = Path('/opt/edulab')
-BRANCH = 'codex/ai-video-website'
+BRANCH = 'main'
 REPOSITORY = 'wkxyz/edulab'
 WORKFLOW = '.github/workflows/tutor-check.yml'
 RECEIPT = Path('/tmp/edulab-upgrade-result.json')

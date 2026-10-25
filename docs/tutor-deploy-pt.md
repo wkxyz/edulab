@@ -4,6 +4,18 @@
 
 2026-10-24 19:09（北京时间）已通过一题真实MiniMax视频验收：`MiniMax-M3.1-Flash` 解题与 `speech-2.8-hd` 配音使用独立服务端密钥，题图 `3x−7=8` 得到 `x=5`，生成33.134秒、1280×720带非静音音轨MP4，公网实际播放和范围读取通过。验收后真实生成自动关闭；累计上限2题已用完，当日/单题预算预留为2000/1000人民币分，不自动补充。固定示例可用，正式账号和收费尚未开放。详见 [真实视频验收记录](tutor-qa.md#minimax-真实视频验收通过2026-10-24)。
 
+## 自动部署（main → 小y）
+
+合入或推送到 `main` 后，GitHub Actions「Tutor deploy」会自动把小 y `/opt/edulab` 更新到该 commit 并 recreate 容器。也可在仓库 Actions 页手动 `workflow_dispatch`。
+
+- Workflow：`.github/workflows/tutor-deploy.yml`
+- 主机脚本：`deploy/tutor/deploy-main-on-host.sh`（root/`sudo -n` 执行）
+- Secrets（仓库 Settings → Secrets）：`EDULAB_DEPLOY_HOST`、`EDULAB_DEPLOY_USER`、`EDULAB_DEPLOY_SSH_KEY`、`EDULAB_DEPLOY_KNOWN_HOSTS`
+- 失败：打开对应 Actions run 日志；成功后 `curl -sS https://pt.yokily.com/api/health` 应 200 且含 `stages` 与 `budget`
+- 不修改 `.env`、不打开 `liveEnabled`、不清预算；默认分支 `master` 不会触发此部署
+
+Mac 侧可选的保守升级脚本 `services/tutor/scripts/upgrade-edulab-remote.py` 已对齐 `main`（仍要求指定 40-hex revision 且 Tutor checks 绿）。日常发布以 Actions 为准，不必再手工 compose。
+
 ## 主机准备
 
 建议4核8GB、80GB以上磁盘、Ubuntu 24.04或兼容Linux；先运行单实例。需要Docker Engine、Compose v2、Python3。专用主机放行80/443，8788只绑定回环地址。已有网站占用80/443时，须将Caddy站点配置合入现有反向代理，不能停掉或替换不相关服务。
@@ -11,7 +23,7 @@
 当前主机位于腾讯云硅谷，Ubuntu 24.04 x86_64、2核2GB、40GB磁盘，工作目录 `/opt/edulab`，保留主机已有约2GB交换空间。该规格已通过串行固定示例与模拟KIE流程；不代表复杂题目或并发负载已验证。下面命令叠加 `compose.tutor.host.yml`，限制题解容器为1200MB内存和1.5核，给系统及代理留出资源；较大主机可省略这一叠加文件。
 
 ```bash
-git clone --branch codex/ai-video-website https://github.com/wkxyz/edulab.git
+git clone --branch main https://github.com/wkxyz/edulab.git
 cd edulab
 python3 deploy/tutor/prepare-env.py
 docker compose -f compose.tutor.yml -f compose.tutor.public.yml -f compose.tutor.host.yml config --quiet
