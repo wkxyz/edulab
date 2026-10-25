@@ -2,11 +2,14 @@ import fs from 'node:fs';import path from 'node:path';import os from 'node:os';i
 import {startServer} from '../server.mjs';import {runProcess} from '../render.mjs';
 import {verifyKieFlow} from './kie-flow.mjs';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'tutor-smoke-'));
-const {server,tutor}=await startServer({dataDir:dir,port:0,renderOptions:{fps:6,scale:1}});
+const realFetch=globalThis.fetch,externalRequests=[];
+globalThis.fetch=async(input,options={})=>{const url=new URL(input instanceof Request?input.url:String(input));if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'){externalRequests.push(url.origin+url.pathname);throw new Error('External HTTP forbidden in provider-free smoke');}return realFetch(input,{...options,redirect:'error'});};
+const {server,tutor}=await startServer({dataDir:dir,port:0,renderOptions:{fps:6,scale:1},liveEnabled:false,configured:false,lessonConfigured:false,narrationConfigured:false,aiKey:'',ttsKey:''});
 const base=`http://127.0.0.1:${server.address().port}`;let browser;
 try{
  const {chromium}=await import('playwright');browser=await chromium.launch();const page=await browser.newPage({viewport:{width:390,height:844}});
  const issues=[];page.on('pageerror',e=>issues.push(e.message));
+ await page.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==base){externalRequests.push(u.origin+u.pathname);return route.abort();}return route.continue();});
  await page.goto(base);await page.getByRole('heading',{name:'拍一道题，听懂每一步'}).waitFor();
  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);assert.equal(overflow,false);
  await page.screenshot({path:path.join(dir,'mobile.png')});
@@ -75,7 +78,7 @@ try{
  await page.getByRole('button',{name:'拍题',exact:true}).click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(dir,'desktop.png')});
  await page.getByRole('button',{name:'我的',exact:true}).click();await page.getByRole('heading',{name:'我的',exact:true}).waitFor();
  await page.goBack();await page.getByRole('heading',{name:'拍一道题，听懂每一步'}).waitFor();
- assert.deepEqual(issues,[]);
+ assert.deepEqual(issues,[]);assert.deepEqual(externalRequests,[]);
  const token=await page.evaluate(()=>localStorage.getItem('tutor-token'));const tasks=await fetch(base+'/api/tasks',{headers:{authorization:'Bearer '+token}}).then(r=>r.json());const task=tasks.tasks.find(t=>t.status==='completed'&&t.result?.video);
  const range=await fetch(base+task.result.video,{headers:{Range:'bytes=0-1023'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,1024);
  const probe=JSON.parse((await runProcess('ffprobe',['-v','error','-show_streams','-of','json',path.join(dir,'jobs',task.id,'video.mp4')])).toString());
@@ -86,4 +89,4 @@ try{
  await verifyKieFlow(dir,narratedId);
  await verifyKieFlow(dir,narratedId,{provider:'minimax'});
  await verifyKieFlow(dir,narratedId,{provider:'minimax',acceptance:true});
-}finally{if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
+}finally{globalThis.fetch=realFetch;if(browser)await browser.close();await new Promise(r=>server.close(r));tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
