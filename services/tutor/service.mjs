@@ -9,7 +9,7 @@ const voiced=result=>result.audioReady===true||result.audioReady!==false&&(resul
 const narrationCapability=id=>['solid-geometry','analytic-geometry'].includes(id)?'math-video':id==='chem-reaction'?'chem-video':id;
 export class Tutor {
  constructor(options={}){
-  this.options={dailyLimit:20,ownerLimit:5,sampleOwnerLimit:options.ownerLimit??20,totalLimit:200,liveTaskLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,stageQuota:false,projectBudgetCents:2000,lessonBudgetCents:100,narrationBudgetCents:200,lessonTaskLimit:0,narrationTaskLimit:0,...options};
+  this.options={dailyLimit:20,ownerLimit:5,sampleOwnerLimit:options.ownerLimit??20,totalLimit:200,liveTaskLimit:200,queueLimit:10,maxMs:300000,autoRun:true,liveEnabled:false,dayBudgetCents:0,jobBudgetCents:0,stageQuota:false,projectBudgetCents:2000,lessonBudgetCents:100,narrationBudgetCents:200,lessonTaskLimit:0,narrationTaskLimit:0,lessonDailyLimit:20,narrationDailyLimit:20,...options};
   if(!Number.isSafeInteger(this.options.projectBudgetCents)||this.options.projectBudgetCents<0||this.options.projectBudgetCents>2000)throw new Error('Invalid configuration: projectBudgetCents');
   this.db=openStore(options.dataDir);this.running=new Map();this.closed=false;this.draining=false;
   this.runner=options.runner||(async()=>fail('NOT_CONFIGURED',503));
@@ -20,29 +20,35 @@ export class Tutor {
   const limitCents=this.options.projectBudgetCents,reservedCents=this.db.prepare('SELECT coalesce(sum(reserve),0) n FROM tasks').get().n;
   return {currency:'CNY',kind:'cumulative-reservation',limitCents,reservedCents,remainingCents:Math.max(0,limitCents-reservedCents)};
  }
- stageUsage(stage){
-  let count=0;
-  for(const row of this.db.prepare("SELECT mode,input,status,result FROM tasks WHERE mode IN ('live','narration')").all()){
+ stageUsage(stage,day=null,owner=null){
+  let count=0;const start=day?Date.parse(day+'T00:00:00Z'):0;
+  for(const row of this.db.prepare("SELECT mode,input,status,result,created,owner FROM tasks WHERE mode IN ('live','narration')").all()){
+   if(day&&(row.created<start||row.created>=start+86400000)||owner&&row.owner!==owner)continue;
    const input=JSON.parse(row.input);
    if(stage==='lesson'&&row.mode==='live')count++;
    if(stage==='narration'&&(row.mode==='narration'&&input.sourceMode==='live'||row.mode==='live'&&(input.delivery==='video'||input.delivery===undefined&&row.status==='completed'&&row.result&&voiced(JSON.parse(row.result)))))count++;
   }
   return count;
  }
+ freeUsage(day,owner=null){
+  const start=Date.parse(day+'T00:00:00Z');
+  return this.db.prepare('SELECT mode,input,owner FROM tasks WHERE created>=? AND created<?').all(start,start+86400000).filter(row=>(!owner||row.owner===owner)&&!paidTask(row.mode,JSON.parse(row.input))).length;
+ }
  stageAvailability(stage){
   const o=this.options,reserveCents=o.stageQuota?(stage==='lesson'?o.lessonBudgetCents:o.narrationBudgetCents):stage==='lesson'?o.jobBudgetCents:o.narrationBudgetCents;
-  let reason=null;
+  let reason=null;const day=new Date().toISOString().slice(0,10);
   if(this.isStopped())reason='STOPPED';
   else if(!o.liveEnabled||!(stage==='lesson'?(o.lessonConfigured??o.configured):(o.narrationConfigured??o.configured))||reserveCents<=0||!o.stageQuota&&o.dayBudgetCents<=0)reason='NOT_CONFIGURED';
   else if(o.stageQuota&&this.stageUsage(stage)>=(stage==='lesson'?o.lessonTaskLimit:o.narrationTaskLimit))reason=stage==='lesson'?'LESSON_LIMIT':'NARRATION_LIMIT';
+  else if(o.stageQuota&&this.stageUsage(stage,day)>=(stage==='lesson'?o.lessonDailyLimit:o.narrationDailyLimit))reason=stage==='lesson'?'LESSON_DAILY_LIMIT':'NARRATION_DAILY_LIMIT';
   else if(!o.stageQuota&&this.liveLimitReached())reason='LIVE_LIMIT';
   else if(this.budget().reservedCents+reserveCents>o.projectBudgetCents)reason='PROJECT_BUDGET_EXHAUSTED';
   else {
-   const day=new Date().toISOString().slice(0,10),usage=this.db.prepare('SELECT * FROM daily WHERE day=?').get(day);
+   const usage=this.db.prepare('SELECT * FROM daily WHERE day=?').get(day);
    if(o.dayBudgetCents>0&&(usage?.cost||0)+reserveCents>o.dayBudgetCents)reason='BUDGET_EXHAUSTED';
    else if(this.db.prepare('SELECT count(*) n FROM tasks').get().n>=o.totalLimit)reason='TOTAL_LIMIT';
    else if(this.db.prepare("SELECT count(*) n FROM tasks WHERE status IN ('queued','running')").get().n>=o.queueLimit)reason='QUEUE_FULL';
-   else if((usage?.jobs||0)>=o.dailyLimit)reason='PROJECT_LIMIT';
+   else if(!o.stageQuota&&(usage?.jobs||0)>=o.dailyLimit)reason='PROJECT_LIMIT';
   }
   return {available:reason===null,reason,reserveCents};
  }
@@ -90,20 +96,21 @@ export class Tutor {
    }
    const mode=exportSource?'export':narrationSource?'narration':input.sampleId?'sample':'live',paid=paidTask(mode,input);
    const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
-   let reserve=0;
+   let reserve=0,stages=[];
    if(paid){
-    const stages=mode==='narration'?['narration']:input.delivery==='video'&&o.stageQuota?['lesson','narration']:['lesson'];
+    stages=mode==='narration'?['narration']:input.delivery==='video'&&o.stageQuota?['lesson','narration']:['lesson'];
     for(const stage of stages){const availability=this.stageAvailability(stage);if(!availability.available)fail(availability.reason,availability.reason==='NOT_CONFIGURED'||availability.reason==='STOPPED'?503:429);reserve+=availability.reserveCents;}
     if(this.budget().reservedCents+reserve>o.projectBudgetCents)fail('PROJECT_BUDGET_EXHAUSTED',429);
    }
    if(this.db.prepare('SELECT count(*) n FROM tasks').get().n>=o.totalLimit)fail('TOTAL_LIMIT',429);
    if(this.db.prepare("SELECT count(*) n FROM tasks WHERE status IN ('queued','running')").get().n>=o.queueLimit)fail('QUEUE_FULL',429);
    const usage=this.db.prepare('SELECT * FROM daily WHERE day=?').get(day);
-   if((usage?.jobs||0)>=o.dailyLimit)fail('PROJECT_LIMIT',429);
+   if(o.stageQuota?!paid&&this.freeUsage(day)>=o.dailyLimit:(usage?.jobs||0)>=o.dailyLimit)fail('PROJECT_LIMIT',429);
    if(reserve&&o.dayBudgetCents>0&&(usage?.cost||0)+reserve>o.dayBudgetCents)fail('BUDGET_EXHAUSTED',429);
    const own=this.db.prepare('SELECT jobs FROM owner_daily WHERE owner=? AND day=?').get(owner,day),start=Date.parse(day+'T00:00:00Z');
    const paidOwn=paid?this.db.prepare("SELECT mode,input FROM tasks WHERE owner=? AND created>=? AND created<?").all(owner,start,start+86400000).filter(row=>paidTask(row.mode,JSON.parse(row.input))).length:0;
-   if(paid?paidOwn>=o.ownerLimit:(own?.jobs||0)>=o.sampleOwnerLimit)fail('OWNER_LIMIT',429);
+   const ownerReached=o.stageQuota?(paid?stages.some(stage=>this.stageUsage(stage,day,owner)>=o.ownerLimit):this.freeUsage(day,owner)>=o.sampleOwnerLimit):(paid?paidOwn>=o.ownerLimit:(own?.jobs||0)>=o.sampleOwnerLimit);
+   if(ownerReached)fail('OWNER_LIMIT',429);
    const id=randomUUID(),media=randomBytes(24).toString('hex');
    this.db.prepare("INSERT INTO tasks(id,owner,idem,input,mode,status,stage,created,expires,reserve,media_token) VALUES(?,?,?,?,?,'queued','queued',?,?,?,?)").run(id,owner,idem,json,mode,now,now+o.maxMs,reserve,media);
    this.db.prepare('INSERT INTO daily VALUES(?,1,?,?) ON CONFLICT(day) DO UPDATE SET jobs=jobs+1,calls=calls+excluded.calls,cost=cost+excluded.cost').run(day,paid?14:0,reserve);
