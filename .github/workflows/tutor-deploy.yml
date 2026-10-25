@@ -1,0 +1,139 @@
+name: Tutor deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Optional 40-hex SHA to deploy (default: this workflow ref)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tutor-deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DEPLOY_HOST: ${{ secrets.EDULAB_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.EDULAB_DEPLOY_USER }}
+    steps:
+      - name: Resolve target revision
+        id: rev
+        run: |
+          set -euo pipefail
+          TARGET='${{ github.event.inputs.ref }}'
+          if [ -z "$TARGET" ]; then
+            TARGET='${{ github.sha }}'
+          fi
+          if ! [[ "$TARGET" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ref must be a 40-hex commit SHA, got: $TARGET" >&2
+            exit 1
+          fi
+          echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Deploying $TARGET"
+
+      - name: Require deploy SSH secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER; do
+            if [ -z "${!name}" ]; then
+              echo "Missing secret/env $name" >&2
+              missing=1
+            fi
+          done
+          if [ -z "${{ secrets.EDULAB_DEPLOY_SSH_KEY }}" ]; then
+            echo "Missing secret EDULAB_DEPLOY_SSH_KEY" >&2
+            missing=1
+          fi
+          if [ -z "${{ secrets.EDULAB_DEPLOY_KNOWN_HOSTS }}" ]; then
+            echo "Missing secret EDULAB_DEPLOY_KNOWN_HOSTS" >&2
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Configure repo secrets EDULAB_DEPLOY_{HOST,USER,SSH_KEY,KNOWN_HOSTS} then re-run." >&2
+            exit 1
+          fi
+
+      - name: Configure SSH client
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # Write key and known_hosts without echoing secret values
+          printf '%s\n' "${{ secrets.EDULAB_DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          # Support keys that may or may not end with a newline
+          printf '%s\n' "${{ secrets.EDULAB_DEPLOY_SSH_KEY }}" > ~/.ssh/edulab_deploy
+          chmod 600 ~/.ssh/edulab_deploy
+
+      - name: Deploy on 小y via SSH + sudo
+        env:
+          TARGET: ${{ steps.rev.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Stream a fixed remote script; TARGET is validated 40-hex above.
+          ssh -i ~/.ssh/edulab_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ConnectionAttempts=2 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "sudo -n env EDULAB_ROOT=/opt/edulab bash -s -- ${TARGET}" <<'REMOTE'
+          set -euo pipefail
+          REF="$1"
+          ROOT="${EDULAB_ROOT:-/opt/edulab}"
+          cd "$ROOT"
+          git config --global --add safe.directory "$ROOT" >/dev/null 2>&1 || true
+          current_fetch="$(git config --get-all remote.origin.fetch || true)"
+          if ! grep -qx '+refs/heads/\*:refs/remotes/origin/\*' <<<"$current_fetch"              && ! grep -qx '+refs/heads/main:refs/remotes/origin/main' <<<"$current_fetch"; then
+            git config --add remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
+          fi
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git cat-file -e "${REF}^{commit}"
+          git merge-base --is-ancestor "$REF" origin/main
+          # Prefer the in-tree host script once this REF contains it; otherwise
+          # bootstrap with the same compose steps (first merge of this workflow).
+          if git cat-file -e "${REF}:deploy/tutor/deploy-main-on-host.sh" 2>/dev/null; then
+            git checkout -B main "$REF"
+            test "$(git rev-parse HEAD)" = "$REF"
+            exec ./deploy/tutor/deploy-main-on-host.sh "$REF"
+          fi
+          echo "host script missing at $REF — using bootstrap inline deploy"
+          git checkout -B main "$REF"
+          test "$(git rev-parse HEAD)" = "$REF"
+          COMPOSE=(docker compose -f compose.tutor.yml -f compose.tutor.public.yml -f compose.tutor.host.yml)
+          "${COMPOSE[@]}" build tutor
+          "${COMPOSE[@]}" up -d --force-recreate
+          deadline=$((SECONDS + 90))
+          while ! curl --fail --silent --max-time 3 http://127.0.0.1:8788/api/health >/tmp/edulab-deploy-health.json 2>/dev/null; do
+            if (( SECONDS >= deadline )); then echo "local health not ready" >&2; exit 1; fi
+            sleep 2
+          done
+          "${COMPOSE[@]}" exec -T tutor node control.mjs resume >/tmp/edulab-deploy-control.json || true
+          curl --fail --silent --max-time 15 https://pt.yokily.com/api/health | tee /tmp/edulab-deploy-public-health.json
+          python3 -c 'import json; h=json.load(open("/tmp/edulab-deploy-public-health.json")); assert "stages" in h and "budget" in h, h; print("public health OK", {k:h.get(k) for k in ("liveEnabled","stopped","sampleAvailable")}, h.get("budget"))'
+          echo "done HEAD=$(git rev-parse HEAD)"
+          REMOTE
+
+      - name: Public health gate from Actions runner
+        run: |
+          set -euo pipefail
+          curl --fail --retry 10 --retry-delay 2 --retry-all-errors --max-time 15 \
+            --silent https://pt.yokily.com/api/health | tee "$RUNNER_TEMP/health.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          h=json.loads((Path(os.environ['RUNNER_TEMP'])/'health.json').read_text())
+          assert isinstance(h.get('stages'), dict), h
+          assert isinstance(h.get('budget'), dict), h
+          assert h.get('sampleAvailable') is True, h
+          print('runner public health OK', {k:h.get(k) for k in ('liveEnabled','stopped','sampleAvailable')}, h.get('budget'))
+          PY
