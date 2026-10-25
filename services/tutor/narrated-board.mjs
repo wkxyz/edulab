@@ -12,6 +12,12 @@ const require=createRequire(import.meta.url);
 const escapeHTML=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 const json=value=>JSON.stringify(value).replaceAll('<','\\u003c').replaceAll('\u2028','\\u2028').replaceAll('\u2029','\\u2029');
 function mathText(value){
+ const options={throwOnError:false,trust:false,strict:'ignore',maxExpand:200,maxSize:30};
+ // Checked interactive answers often contain a complete undelimited TeX
+ // expression. Typeset those with the same trusted KaTeX options.
+ if(!value.includes('$')&&!/\\[([]/.test(value)&&/\\(?:frac|sqrt|left|right|sin|cos|tan|pi|cdot|times|alpha|beta|theta|in|le|ge)\b/.test(value)){
+  try{return katex.renderToString(value,{...options,throwOnError:true});}catch{}
+ }
  const pattern=/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g;
  let html='',at=0;
  for(const m of value.matchAll(pattern)){
@@ -28,7 +34,7 @@ export function compileNarratedBoard(plan,clips){
  for(const [i,section] of plan.sections.entries()){
   const clip=clips[i];
   if(!clip||typeof clip.file!=='string'||!Number.isFinite(clip.duration)||clip.duration<=0||clip.duration>45)fail('INVALID_LESSON');
-  const at=t,end=t+clip.duration;segments.push({title:section.title,at:i===0?0:at});audio.push({file:clip.file,at});
+  const at=t,end=t+clip.duration;if(i>0&&i<plan.sections.length-1)segments.push({title:section.title,at});audio.push({file:clip.file,at});
   const chars=Array.from(section.say);
   for(let j=0;j<chars.length;j+=26){const n=Math.min(26,chars.length-j);captions.push({text:chars.slice(j,j+n).join(''),at:at+clip.duration*j/chars.length,end:at+clip.duration*(j+n)/chars.length,words:[]});}
   scenes.push({title:section.title,at:i===0?0:at,end:end+0.6});t=end+0.6;
