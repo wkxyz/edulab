@@ -38,6 +38,8 @@ git merge-base --is-ancestor "$REF" origin/main
 
 echo "==> checkout main @ $REF"
 # Keep branch name main (upgrade script / ops expect it). Untracked .env is preserved.
+# Prior dry-runs may leave untracked copies under deploy/ that block checkout of tracked paths.
+git clean -fd -- deploy/
 git checkout -B main "$REF"
 test "$(git rev-parse HEAD)" = "$REF"
 git diff --quiet

@@ -102,11 +102,13 @@ jobs:
           # Prefer the in-tree host script once this REF contains it; otherwise
           # bootstrap with the same compose steps (first merge of this workflow).
           if git cat-file -e "${REF}:deploy/tutor/deploy-main-on-host.sh" 2>/dev/null; then
+            git clean -fd -- deploy/
             git checkout -B main "$REF"
             test "$(git rev-parse HEAD)" = "$REF"
-            exec ./deploy/tutor/deploy-main-on-host.sh "$REF"
+            bash ./deploy/tutor/deploy-main-on-host.sh "$REF"
           fi
           echo "host script missing at $REF — using bootstrap inline deploy"
+          git clean -fd -- deploy/
           git checkout -B main "$REF"
           test "$(git rev-parse HEAD)" = "$REF"
           COMPOSE=(docker compose -f compose.tutor.yml -f compose.tutor.public.yml -f compose.tutor.host.yml)
