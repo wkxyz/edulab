@@ -38,7 +38,7 @@ export function readSourceLesson(config,input,ctx){
  return {dir,bytes,lesson};
 }
 export function copyExportArtifacts(config,input,out,ctx){
- if(input.sourceResult?.audioReady!==true||input.sourceResult?.format!=='video')fail('EXPORT_NOT_AVAILABLE');
+ if(input.sourceResult?.audioReady===false||input.sourceResult?.format!=='video')fail('EXPORT_NOT_AVAILABLE');
  const from=sourceDirectory(config,input.exportOf);
  for(const name of ['preview.html','lesson.html','audio.wav','timeline.json','subtitles.srt']){
   ctx.guard();const bytes=readFixedArtifact(from,name);
@@ -48,11 +48,23 @@ export function copyExportArtifacts(config,input,out,ctx){
  ctx.guard();return from;
 }
 const checkedText=(value,max)=>{if(typeof value!=='string'||!value.trim()||value.length>max||value.includes('\0'))fail('ARTIFACT_EXPIRED');return value;};
-export function safeNarrationText(text){
- // Never pronounce arbitrary TeX, ratios, conditions, or truncated equations.
- // Full checked text is kept on screen; only short, plain prose is spoken.
- if(typeof text!=='string'||Array.from(text).length>130||!text.trim()||!/^([\p{Script=Han}0-9０-９\s，。、；：！？,.!?（）()“”‘’—-])+$/u.test(text))return '推导请看屏幕。';
- return text;
+export function safeNarrationText(text,title=''){
+ const plain=/^[\p{Script=Han}0-9０-９\s，。、；：！？,.!?（）()“”‘’—-]+$/u;
+ if(typeof text!=='string'||!text.trim())return '推导请看屏幕。';
+ if(Array.from(text).length<=130&&plain.test(text))return text;
+ // Retain complete prose clauses and meaningful Chinese phrases around math.
+ // Formulas and all conditions remain in the full on-screen source.
+ const withoutMath=text.replace(/\$\$[\s\S]*?\$\$|\$[^$]*?\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g,' ');
+ const parts=withoutMath.split(/[，。；：！？,;:\n]/).flatMap(part=>{
+  const value=part.trim();if(!value)return [];
+  if(plain.test(value)&&Array.from(value).length<=100)return [value];
+  return value.match(/[\p{Script=Han}]{4,}/gu)||[];
+ });
+ const heading=typeof title==='string'&&Array.from(title).length<=40&&plain.test(title)?title.trim():'';
+ const clauses=[...new Set([heading,...parts].filter(Boolean))];
+ const prose=clauses.join('。'),ending='完整条件、公式和推导请看屏幕。';
+ // Do not cut a sentence or formula to meet the speech cap.
+ return Array.from(prose+ending).length<=130?(prose?prose+'。':'')+ending:(heading?heading+'。':'')+ending;
 }
 export function interactiveNarrationPlan(value){
  if(value?.format!=='interactive'||!Array.isArray(value.steps)||!value.steps.length||value.steps.length>8)fail('ARTIFACT_EXPIRED');
@@ -61,7 +73,7 @@ export function interactiveNarrationPlan(value){
  if(JSON.stringify({meta,steps}).length>80000)fail('ARTIFACT_EXPIRED');
  const sections=[
   {title:'题目与全部条件',text:meta.problem,say:'请看屏幕上的完整题目和全部条件。'},
-  ...steps.map((step,i)=>({title:step.title,text:step.description,say:'第'+(i+1)+'步。'+safeNarrationText(step.description)})),
+  ...steps.map((step,i)=>({title:step.title,text:step.description,say:'第'+(i+1)+'步。'+safeNarrationText(step.description,step.title)})),
   {title:'已核对答案',text:meta.answer,say:'已核对的最终答案请看屏幕。'}
  ];
  return {meta,steps,sections};
