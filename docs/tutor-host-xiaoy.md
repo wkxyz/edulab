@@ -2,9 +2,9 @@
 
 用户于2026-10-24将这台腾讯云主机命名为「小y」。它是题解网站的服务器：
 
-- 公网地址：43.173.94.201；SSH端口22；用户root。
+- 公网地址：43.173.94.201；SSH端口22；Actions 部署用户 ubuntu（passwordless sudo）；手工 root 需本机已授权密钥。
 - 网站：https://pt.yokily.com；代码目录：/opt/edulab。
-- 代码仓库：wkxyz/edulab；部署分支：codex/ai-video-website。
+- 代码仓库：wkxyz/edulab；部署分支：main（自动部署见 AGENTS.md 与 .github/workflows/tutor-deploy.yml）。
 - 用户Mac已有id_ed25519及已验证的known_hosts记录。使用已有密钥，不将私钥或API Key写入仓库。
 - 本地登录别名采用ASCII `xiaoy`，命令为 `ssh xiaoy`。`ops/xiaoy/setup-ssh.py` 在用户自己的终端安装别名；已有配置先备份，冲突时停止，严格验证主机身份，不启用密码登录。
 
