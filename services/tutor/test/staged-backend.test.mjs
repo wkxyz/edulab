@@ -167,3 +167,27 @@ test('HTTP narration ignores forged body, checks ownership, and reports cumulati
   assert.deepEqual(health.budget,{currency:'CNY',kind:'cumulative-reservation',limitCents:2000,reservedCents:0,remainingCents:2000});
  }finally{await new Promise(resolve=>app.server.close(resolve));app.tutor.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('uncompleted narration sources and unvoiced video results cannot enter later stages',async()=>{
+ const x=fixture({runner:async()=>({...lessonResult,format:'video',audioReady:false})});
+ try{
+  const source=x.tutor.create({sampleId:'equation'},'a','s');
+  assert.throws(()=>x.tutor.createNarration(source.id,'a'),/NARRATION_NOT_AVAILABLE/);
+  await x.tutor.run(source.id);
+  assert.throws(()=>x.tutor.createExport(source.id,'a'),/EXPORT_NOT_AVAILABLE/);
+  const before=x.tutor.budget().reservedCents;x.tutor.setStopped(true);
+  assert.throws(()=>x.tutor.createNarration(source.id,'a'),/STOPPED/);
+  assert.equal(x.tutor.health().stages.lesson.reason,'STOPPED');assert.equal(x.tutor.health().stages.narration.reason,'STOPPED');
+  assert.equal(x.tutor.budget().reservedCents,before);
+ }finally{x.close();}
+});
+test('legacy export idempotency retains its stored JSON and source',async()=>{
+ const x=fixture({runner:async()=>voicedResult});
+ try{
+  const source=x.tutor.create({sampleId:'equation',delivery:'video'},'a','s');await x.tutor.run(source.id);
+  const exported=x.tutor.createExport(source.id,'a'),input=JSON.parse(stored(x.tutor,exported.id).input);
+  const legacy=JSON.stringify({exportOf:input.exportOf,capability:input.capability,style:input.style,sourceResult:input.sourceResult});
+  x.tutor.db.prepare('UPDATE tasks SET input=? WHERE id=?').run(legacy,exported.id);
+  assert.equal(x.tutor.createExport(source.id,'a').id,exported.id);assert.equal(stored(x.tutor,exported.id).input,legacy);
+ }finally{x.close();}
+});
