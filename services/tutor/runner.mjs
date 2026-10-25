@@ -95,7 +95,7 @@ export function createRunner(config,adapters={}){
    else if(animated){lesson=(await api.solveStructured(task.input,config,ctx,{instructions:animationInstructions(capability),validate:value=>validateAnimation(value,capability)})).spec;}
    else lesson=await api.solve(task.input,config,ctx);
    ctx.guard();fs.writeFileSync(path.join(out,'lesson.json'),JSON.stringify(lesson,null,2));
-   const narration=task.input.delivery==='video',options={...config.renderOptions,narration,exportVideo:narration&&task.input.exportVideo!==false};
+   const narration=task.input.delivery===undefined||task.input.delivery==='video',options={...config.renderOptions,narration,exportVideo:narration&&task.input.exportVideo!==false};
    const clips=narration?await voice(speechLines(lesson,animated),out,ctx,sample):[];
    const result=await preview(lesson,animated,clips,out,ctx,capability,options);
    return {...result,format:narration?'video':'lesson',audioReady:narration,subtitlesReady:narration,
