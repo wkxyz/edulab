@@ -36,7 +36,7 @@ try{
  await page.getByRole('button',{name:'体验示例讲解',exact:true}).click();
  await page.getByRole('button',{name:'取消本次生成',exact:true}).waitFor();
  await page.screenshot({path:path.join(dir,'processing.png')});
- await page.getByRole('button',{name:'查看我的视频',exact:true}).click();
+ await page.locator('#history').click();
  await page.getByRole('button',{name:/一元一次方程/}).first().click();
  await page.getByRole('button',{name:'生成配音讲解',exact:true}).waitFor({timeout:240000});
  const unvoicedId=new URL(page.url()).hash.split('/').pop();
@@ -73,9 +73,9 @@ try{
  await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:'放大观看',exact:true}).click();
  assert.equal(await page.locator('.wide-player').count(),1);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.getByRole('button',{name:'恢复布局',exact:true}).click();
- await page.getByRole('button',{name:'返回我的视频',exact:true}).click();await page.getByRole('button',{name:'已完成',exact:true}).click();
+ await page.locator('#back').click();await page.getByRole('button',{name:'已完成',exact:true}).click();
  await page.getByRole('button',{name:/一元一次方程/}).first().waitFor();
- await page.getByRole('searchbox',{name:'搜索视频',exact:true}).fill('找不到的题目');await page.getByRole('heading',{name:'没有找到匹配的视频',exact:true}).waitFor();
+ await page.locator('#search').fill('找不到的题目');await page.getByRole('heading',{name:'没有找到匹配的视频',exact:true}).waitFor();
  await page.getByRole('button',{name:'清除筛选',exact:true}).click();await page.getByRole('button',{name:/一元一次方程/}).first().waitFor();
  await page.getByRole('button',{name:'拍题',exact:true}).click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(dir,'desktop.png')});
  await page.getByRole('button',{name:'我的',exact:true}).click();await page.getByRole('heading',{name:'我的',exact:true}).waitFor();
