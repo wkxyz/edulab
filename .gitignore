@@ -21,3 +21,7 @@ __pycache__/
 venv/
 .pytest_cache/
 .ipynb_checkpoints/
+.tutor-data/
+.superpowers/
+services/tutor/.env
+**/.env.local
