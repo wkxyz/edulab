@@ -7,7 +7,9 @@ const KATEX=path.dirname(createRequire(import.meta.url).resolve('katex/dist/kate
 const json=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(data));};
 async function body(req){let n=0;const chunks=[];for await(const chunk of req){n+=chunk.length;if(n>5601000)fail('PAYLOAD_TOO_LARGE',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString());}catch(e){if(e instanceof TutorError)throw e;fail('INVALID_JSON');}}
 export async function startServer(options={}){
- const config={...configFromEnv(),...options};const tutor=new Tutor({...config,runner:options.runner||createRunner(config)});
+ const config={...configFromEnv(),...options};
+ if(options.configured!==undefined){if(options.lessonConfigured===undefined)config.lessonConfigured=options.configured;if(options.narrationConfigured===undefined)config.narrationConfigured=options.configured;}
+ const tutor=new Tutor({...config,runner:options.runner||createRunner(config)});
  const server=http.createServer(async(req,res)=>{
   try{
    const url=new URL(req.url,'http://localhost'),p=url.pathname;
