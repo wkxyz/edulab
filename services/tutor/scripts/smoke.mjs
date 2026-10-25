@@ -75,7 +75,7 @@ try{
  await page.getByRole('button',{name:'恢复布局',exact:true}).click();
  await page.locator('#back').click();await page.getByRole('button',{name:'已完成',exact:true}).click();
  await page.getByRole('button',{name:/一元一次方程/}).first().waitFor();
- await page.locator('#search').fill('找不到的题目');await page.getByRole('heading',{name:'没有找到匹配的视频',exact:true}).waitFor();
+ await page.locator('#search').fill('找不到的题目');await page.getByRole('heading',{name:'没有找到匹配的讲解',exact:true}).waitFor();
  await page.getByRole('button',{name:'清除筛选',exact:true}).click();await page.getByRole('button',{name:/一元一次方程/}).first().waitFor();
  await page.getByRole('button',{name:'拍题',exact:true}).click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(dir,'desktop.png')});
  await page.getByRole('button',{name:'我的',exact:true}).click();await page.getByRole('heading',{name:'我的',exact:true}).waitFor();

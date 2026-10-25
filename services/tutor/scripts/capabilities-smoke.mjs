@@ -226,6 +226,8 @@ try{
     const repeated=await api('/api/tasks/'+task.id+'/narration',{method:'POST'});assert.equal(repeated.id,narrated.id);assert.equal(repeated.status,'completed');
     assert.deepEqual(tutor.db.prepare('SELECT attempts,calls,requests,reserve FROM tasks WHERE id=?').get(task.id),before);
     if(example.capability==='math-video'&&!example.handdrawn)screenshots.set('NARRATED_PREVIEW',await page.screenshot());
+    if(example.capability==='solid-geometry')screenshots.set('NARRATED_SOLID',await page.screenshot());
+    if(example.capability==='chem-reaction')screenshots.set('NARRATED_CHEMISTRY',await page.screenshot());
     narratedCompleted.push({...narrated,originalCapability:task.capability});
     results.push({capability:task.capability,format:task.result.format,variant:example.handdrawn?'handdrawn':'default',answerChecked:true,...proof,narration:{...narrationProof,newTask:true,repeatReused:true,sourceUnchanged:true,extraChatCalls:0}});
   }
